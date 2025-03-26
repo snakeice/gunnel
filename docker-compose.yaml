@@ -1,0 +1,18 @@
+services:
+  server:
+    image: nginx:latest
+    ports:
+      - "9991:80"
+
+  client:
+    image: nginx:latest
+    ports:
+      - "9992:80"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          curl -s http://127.0.0.1:8008
+          sleep 1
+        done

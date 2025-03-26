@@ -1,0 +1,10 @@
+server_addr: localhost:8081
+backend:
+  test: 
+    port: 3000
+    subdomain: test
+    protocol: http
+  test2: 
+    port: 3000
+    subdomain: test2
+    protocol: http

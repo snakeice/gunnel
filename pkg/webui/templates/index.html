@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gunnel Status 🚇👷🏼</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Check system preference for dark mode
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+
+        // Listen for system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            if (e.matches) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        });
+
+        function updateStats() {
+            fetch('/api/stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('uptime').textContent = data.uptime;
+                    document.getElementById('total-clients').textContent = data.total_clients;
+                    document.getElementById('active-streams').textContent = data.active_streams;
+                    document.getElementById('total-bytes-io').textContent = formatBytes(data.total_bytes_in+data.total_bytes_out);
+                });
+        }
+
+        function updateClients() {
+            fetch('/api/clients')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('clients-body');
+                    tbody.innerHTML = '';
+                    data.forEach(client => {
+                        tbody.innerHTML += `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${client.subdomain}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${client.connections}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(client.last_active)}</td>
+                            </tr>
+                        `;
+                    });
+                });
+        }
+
+        function updateStreams() {
+            fetch('/api/streams')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('streams-body');
+                    tbody.innerHTML = '';
+                    data.forEach(stream => {
+                        tbody.innerHTML += `
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${stream.id}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${stream.subdomain}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(stream.start_time)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatBytes(stream.bytes_in)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatBytes(stream.bytes_out)}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${stream.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                        ${stream.is_active ? 'Active' : 'Inactive'}
+                                    </span>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                });
+        }
+
+        function formatBytes(bytes) {
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let size = bytes;
+            let unitIndex = 0;
+            while (size >= 1024 && unitIndex < units.length - 1) {
+                size /= 1024;
+                unitIndex++;
+            }
+            return `${size.toFixed(2)} ${units[unitIndex]}`;
+        }
+
+        function formatDate(timestamp) {
+            return new Date(timestamp).toLocaleString();
+        }
+
+        setInterval(() => {
+            updateStats();
+            updateStreams();
+        }, 1000);
+
+        // Update clients every 10 seconds
+        setInterval(() => {
+            updateClients();
+        }, 5000);
+
+        // Initial update
+        updateStats();
+        updateClients();
+        updateStreams();
+    </script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-200">
+    <div class="min-h-screen">
+        <nav class="bg-white dark:bg-gray-800 shadow-lg transition-colors duration-200">
+            <div class="max-w-7xl mx-auto px-4">
+                <div class="flex justify-between h-16">
+                    <div class="flex">
+                        <div class="flex-shrink-0 flex items-center">
+                            <h1 class="text-xl font-bold text-gray-800 dark:text-white">Gunnel Status</h1>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Stats Overview -->
+            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg mb-6 transition-colors duration-200">
+                <div class="px-4 py-5 sm:p-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Overview</h3>
+                    <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                        <div class="bg-gray-50 dark:bg-gray-700 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Uptime</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="uptime">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-700 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Total Clients</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="total-clients">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-700 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Active Streams</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="active-streams">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 dark:bg-gray-700 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Total Data Transferred</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="total-bytes-io">-</dd>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Clients Table -->
+            <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg mb-6 transition-colors duration-200">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Connected Clients</h3>
+                </div>
+                <div class="border-t border-gray-200 dark:border-gray-700">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-700">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Subdomain</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Connections</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Last Active</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clients-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Streams Table -->
+            <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg transition-colors duration-200">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Active Streams</h3>
+                </div>
+                <div class="border-t border-gray-200 dark:border-gray-700">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-700">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ID</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Subdomain</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Start Time</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Bytes In</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Bytes Out</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="streams-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html> 

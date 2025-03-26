@@ -1,0 +1,15 @@
+[tasks]
+build = "go build -o gunnel"
+test = "go test -v ./..."
+lint = "golangci-lint run"
+deps = "go mod download && go mod tidy"
+'run:server' = "go run main.go server --port 8080"
+'run:client' = "go run main.go client -c ./example/client.yaml"
+'air:server' = "air -c .air.toml"
+'air:client' = "air -c .air-client.toml"
+
+debug-scenario = "./scripts/debug-watch.sh"
+
+[tools]
+go = "1.24.2"
+golangci-lint = "2.0.2"
