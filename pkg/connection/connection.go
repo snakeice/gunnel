@@ -133,6 +133,7 @@ func (c *Connection) observeConnection(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			c.logger.Info("Heartbeat context done, shutting down")
+			c.transp.Close()
 			return
 		case <-ticker.C:
 			if c.heartbeatEmitter {

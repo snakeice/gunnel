@@ -39,10 +39,7 @@ func New() *Manager {
 	}
 }
 
-func (r *Manager) Start(ctx context.Context) {
-	// Start a goroutine to handle inactive connections
-	// go r.heartbeat(ctx)
-
+func (m *Manager) Start(ctx context.Context) {
 	go func() {
 		for {
 			select {
@@ -104,25 +101,52 @@ func (m *Manager) Release(subdomain string, stream transport.Stream) {
 	}
 }
 
-func (m *Manager) addClient(subdomain string, client *connection.Connection) {
-	if existingClient, ok := m.getClient(subdomain); !ok {
+func (m *Manager) addClient(subdomain string, client *connection.Connection) error {
+
+	oldClient, exists := m.getClient(subdomain)
+
+	canAccept := true
+
+	if exists {
+		canAccept = oldClient.client.Connected()
+		canAccept = canAccept || oldClient.client == client
+	}
+
+	if !canAccept {
+		return errors.New("client already exists for subdomain " + subdomain)
+	}
+
+	needReplace := exists && canAccept && oldClient.client != client
+
+	if needReplace {
+		logrus.WithField("subdomain", subdomain).Error("Client already exists, removing old client")
+		m.removeClient(oldClient.client)
+	}
+
+	if !exists || needReplace {
 		m.clientsMux.Lock()
 		m.clients = append(m.clients, clientInfo{
 			subdomains: []string{subdomain},
 			client:     client,
 		})
 		m.clientsMux.Unlock()
-	} else {
-		logrus.WithFields(logrus.Fields{
-			"subdomain": subdomain,
-		}).Error("Client already exists, adding subdomain")
-		if slices.Contains(existingClient.subdomains, subdomain) {
-			logrus.WithFields(logrus.Fields{
-				"subdomain": subdomain,
-			}).Error("Subdomain already exists, skipping")
+
+		return nil
+	}
+
+	oldClient.subdomains = append(oldClient.subdomains, subdomain)
+
+	return nil
+}
+
+func (m *Manager) removeClient(client *connection.Connection) {
+	m.clientsMux.Lock()
+	defer m.clientsMux.Unlock()
+
+	for i, c := range m.clients {
+		if c.client == client {
+			m.clients = slices.Delete(m.clients, i, i+1)
 			return
 		}
-
-		existingClient.subdomains = append(existingClient.subdomains, subdomain)
 	}
 }

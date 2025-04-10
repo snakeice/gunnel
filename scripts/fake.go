@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -10,6 +11,7 @@ import (
 func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		logrus.Info("Received request")
+		time.Sleep(40 * time.Millisecond)
 		_, _ = w.Write([]byte("{\"message\": \"Hello, world!\"}"))
 	})
 

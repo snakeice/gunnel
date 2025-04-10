@@ -78,21 +78,13 @@ func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Mess
 		subdomain = "default"
 	}
 
-	oldClient, exists := m.getClient(subdomain)
-
 	reason := "success"
 
-	canAccept := !exists
+	canAccept := true
 
-	if exists {
-		canAccept = oldClient.client.Connected()
-		canAccept = canAccept || oldClient.client == client
-	}
-
-	if !canAccept {
-		reason = "client already exists for subdomain " + subdomain
-	} else {
-		m.addClient(subdomain, client)
+	if err := m.addClient(subdomain, client); err != nil {
+		reason = "failed to add client: " + err.Error()
+		canAccept = false
 	}
 
 	regRespMsg := protocol.ConnectionRegisterResp{
