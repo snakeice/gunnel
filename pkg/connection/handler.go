@@ -8,13 +8,11 @@ import (
 )
 
 func (c *Connection) handleMessage(msg *protocol.Message) {
-	c.logger.Debugf("Received message: %s", msg.Type)
-
 	c.mu.Lock()
 	c.lastActive = time.Now()
 	c.mu.Unlock()
 
-	switch msg.Type {
+	switch msg.Type { //nolint:exhaustive // this switch not exhaustive
 	case protocol.MessageHeartbeat:
 		c.mu.Lock()
 		c.heartbeatStats.last = time.Now()

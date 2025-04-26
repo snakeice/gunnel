@@ -1,8 +1,8 @@
 package manager
 
 import (
-	"context"
 	"errors"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -29,6 +29,8 @@ type Manager struct {
 	clients []clientInfo
 
 	clientsMux sync.RWMutex
+
+	gunnelSubdomainHandler http.HandlerFunc
 }
 
 // New creates a new router.
@@ -39,27 +41,16 @@ func New() *Manager {
 	}
 }
 
-func (m *Manager) Start(ctx context.Context) {
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				logrus.Info("Router context done, shutting down")
-				return
-			default:
-				// Sleep for a short duration to avoid busy waiting
-				time.Sleep(500 * time.Millisecond)
-			}
-		}
-	}()
+func (m *Manager) SetGunnelSubdomainHandler(handler http.HandlerFunc) {
+	m.gunnelSubdomainHandler = handler
 }
 
 // ForEachClient iterates over all clients and calls the provided function for each one.
-func (r *Manager) ForEachClient(fn func(subdomain string, info *connection.Connection)) {
-	r.clientsMux.RLock()
-	defer r.clientsMux.RUnlock()
+func (m *Manager) ForEachClient(fn func(subdomain string, info *connection.Connection)) {
+	m.clientsMux.RLock()
+	defer m.clientsMux.RUnlock()
 
-	for _, info := range r.clients {
+	for _, info := range m.clients {
 		for _, subdomain := range info.subdomains {
 			fn(subdomain, info.client)
 		}
@@ -92,7 +83,6 @@ func (m *Manager) getClient(subdomain string) (*clientInfo, bool) {
 	}
 
 	return nil, false
-
 }
 
 func (m *Manager) Release(subdomain string, stream transport.Stream) {
@@ -102,7 +92,6 @@ func (m *Manager) Release(subdomain string, stream transport.Stream) {
 }
 
 func (m *Manager) addClient(subdomain string, client *connection.Connection) error {
-
 	oldClient, exists := m.getClient(subdomain)
 
 	canAccept := true

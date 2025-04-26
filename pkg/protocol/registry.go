@@ -44,7 +44,7 @@ func (c *ConnectionRegister) Marshal() *Message {
 
 	return &Message{
 		Type:    MessageConnectionRegister,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -68,14 +68,14 @@ func (c *ConnectionRegisterResp) Marshal() *Message {
 	payload[offset] = boolToByte(c.Success)
 	offset++
 
-	binary.BigEndian.PutUint32(payload[offset:], uint32(len(c.Message)))
+	binary.BigEndian.PutUint32(payload[offset:], lenUint32(c.Message))
 	offset += 4
 
 	copy(payload[offset:], c.Message)
 
 	return &Message{
 		Type:    MessageConnectionRegisterResp,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }

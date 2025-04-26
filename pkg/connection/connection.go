@@ -52,7 +52,7 @@ func New(transp transport.Transport, messageHandler ...MessageHandlerFunc) *Conn
 		}{last: time.Now()},
 		heartbeatEmitter:  !transp.ImServer(),
 		heartbeatInterval: 5 * time.Second,
-		heartbeatTimeout:  15 * time.Second,
+		heartbeatTimeout:  25 * time.Second,
 		logger: logrus.WithFields(
 			logrus.Fields{
 				"addr": transp.Addr(),
@@ -95,8 +95,6 @@ func (c *Connection) watchReceive(ctx context.Context) {
 				return
 			}
 
-			c.logger.Debugf("Received message from %s: %s", c.transp.Addr(), msg.Type)
-
 			c.receiveChannel <- msg
 		}
 	}
@@ -108,9 +106,7 @@ func (c *Connection) watchSend(ctx context.Context) {
 		case <-ctx.Done():
 			c.logger.Info("Client context done, shutting down")
 			return
-		default:
-			msg := <-c.sendChannel
-			c.logger.Debugf("Sending message to %s: %s", c.transp.Addr(), msg.Marshal().Type)
+		case msg := <-c.sendChannel:
 			if err := c.stream.Send(msg); err != nil {
 				c.logger.WithError(err).Errorf("Failed to send message to %s", c.transp.Addr())
 				c.connected = false
@@ -118,6 +114,8 @@ func (c *Connection) watchSend(ctx context.Context) {
 				c.transp.Close()
 				return
 			}
+		default:
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -147,7 +145,10 @@ func (c *Connection) observeConnection(ctx context.Context) {
 
 			if timeSinceLastHeartbeat > c.heartbeatTimeout {
 				atomic.AddInt64(&c.heartbeatStats.missed, 1)
-				c.logger.Warnf("No heartbeat received for %v, connection may be stale", timeSinceLastHeartbeat)
+				c.logger.Warnf(
+					"No heartbeat received for %v, connection may be stale",
+					timeSinceLastHeartbeat,
+				)
 				c.disconnect()
 			}
 		case msg := <-c.receiveChannel:

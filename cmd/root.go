@@ -20,23 +20,24 @@ func Execute() {
 		Short: "A lightweight tunneling application",
 		Long: `Gunnel is a lightweight tunneling application that supports both HTTP and TCP protocols.
 		It allows you to expose local services to the internet through a remote server.`,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			if level != "" {
 				lvl, err := logrus.ParseLevel(level)
 				if err != nil {
 					return err
 				}
+
+				logrus.Infof("Setting log level to %s", lvl)
+
 				logrus.SetLevel(lvl)
-			} else {
-				logrus.SetLevel(logrus.InfoLevel)
 			}
 
 			return nil
-
 		},
 	}
 
-	rootCmd.PersistentFlags().StringVarP(&level, "log-level", "l", "info", "Set the log level (trace, debug, info, warn, error, fatal, panic)")
+	rootCmd.PersistentFlags().
+		StringVarP(&level, "log-level", "l", "trace", "Set the log level (trace, debug, info, warn, error, fatal, panic)")
 	if err := rootCmd.PersistentFlags().MarkHidden("log-level"); err != nil {
 		logrus.Error(err)
 		os.Exit(1)

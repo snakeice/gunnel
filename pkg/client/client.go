@@ -63,8 +63,6 @@ func (c *Client) register() error {
 		return nil
 	}
 
-	// Send registration begin message
-
 	for _, backend := range c.config.Backend {
 		if err := c.registryBackend(backend); err != nil {
 			c.logger.WithError(err).Error("Failed to register backend")
@@ -81,7 +79,7 @@ func (c *Client) register() error {
 
 // registerClient creates a new connection to the server.
 func (c *Client) registryBackend(backend *BackendConfig) error {
-	// Send registration message
+	stream := c.conn.Root()
 	reg := protocol.ConnectionRegister{
 		Subdomain: backend.Subdomain,
 		Host:      backend.Host,
@@ -91,12 +89,12 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 
 	c.logger.Debug("Registering client with server")
 
-	if err := c.conn.Root().Send(&reg); err != nil {
+	if err := stream.Send(&reg); err != nil {
 		c.disconnect()
 		return fmt.Errorf("failed to send registration message: %w", err)
 	}
 
-	msg, err := c.conn.Root().Receive()
+	msg, err := stream.Receive()
 	if err != nil {
 		c.disconnect()
 		return fmt.Errorf("failed to receive registration response: %w", err)
@@ -163,16 +161,6 @@ func (c *Client) worker(ctx context.Context) error {
 			strmLogger.Debug("Accepted new stream from server")
 
 			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						strmLogger.WithField("panic", r).Error("Stream handler panicked")
-					}
-					strmLogger.Debug("Releasing stream")
-					if err := strm.Close(); err != nil {
-						strmLogger.WithError(err).Error("Failed to close stream")
-					}
-				}()
-
 				if err := c.handleStream(ctx, strm, strmLogger); err != nil {
 					strmLogger.WithError(err).Error("Failed to handle stream")
 				}
@@ -215,7 +203,10 @@ func (c *Client) disconnect() {
 		return
 	}
 	c.logger.Info("Closing connection manager")
-	c.conn.Close()
+	if err := c.conn.Close(); err != nil {
+		c.logger.WithError(err).Error("Failed to close connection")
+	}
+
 	c.conn = nil
 }
 

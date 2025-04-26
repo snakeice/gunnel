@@ -1,10 +1,11 @@
 package signal
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/sirupsen/logrus"
 )
 
 func WaitInterruptSignal() {
@@ -19,5 +20,5 @@ func WaitInterruptSignal() {
 	<-signalChan
 
 	// Perform cleanup actions here
-	fmt.Println("Received interrupt signal. Cleaning up...")
+	logrus.Info("Received interrupt signal. Cleaning up...")
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/quic-go/quic-go"
 	"github.com/sirupsen/logrus"
+	"github.com/snakeice/gunnel/pkg/certmanager"
 	"github.com/snakeice/gunnel/pkg/manager"
 	gunnelquic "github.com/snakeice/gunnel/pkg/quic"
 	"github.com/snakeice/gunnel/pkg/signal"
@@ -22,25 +24,27 @@ const (
 )
 
 type Server struct {
-	serverPort int
-	clientPort int
+	config *Config
 
-	serverRouter *manager.Manager
+	connManager *manager.Manager
 
 	webUI *webui.WebUI
 }
 
-func NewServer(serverPort, clientPort int, serverProtocol string, webUIPort int) *Server {
-	r := manager.New()
+func NewServer(config *Config) *Server {
+	m := manager.New()
 
-	webUI := webui.NewWebUI(r, portToAddr(webUIPort))
+	webUI := webui.NewWebUI(m)
 
-	return &Server{
-		serverPort:   serverPort,
-		clientPort:   clientPort,
-		webUI:        webUI,
-		serverRouter: r,
+	m.SetGunnelSubdomainHandler(webUI.HandleRequest)
+
+	s := &Server{
+		config:      config,
+		webUI:       webUI,
+		connManager: m,
 	}
+
+	return s
 }
 
 func (s *Server) Start(ctx context.Context) error {
@@ -52,50 +56,86 @@ func (s *Server) Start(ctx context.Context) error {
 
 		logrus.Info("Received interrupt signal, shutting down")
 		cancel()
-		s.webUI.Stop()
 	}()
 
 	errChan := make(chan error)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(3)
+	wg.Add(2)
 
-	go s.StartWebUI(errChan, wg)
 	go s.StartQUICServer(ctx, errChan, wg)
-	go s.StartHTTPServer(errChan, wg)
+	go s.StartHTTPServer(ctx, errChan, wg)
 	go s.updater(ctx, errChan)
-	go s.serverRouter.Start(ctx)
 
 	wg.Wait()
 	logrus.Info("Server stopped")
 	return nil
 }
 
-func (s *Server) StartHTTPServer(errChan chan error, wg *sync.WaitGroup) {
+func (s *Server) certInfo() *certmanager.CertReqInfo {
+	return &certmanager.CertReqInfo{
+		Domain: s.config.Domain,
+		Email:  s.config.Cert.Email,
+	}
+}
+
+func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	userServer, err := net.Listen("tcp", portToAddr(s.serverPort))
-	if err != nil {
-		errChan <- fmt.Errorf("failed to start user server: %w", err)
-		return
-	}
-	defer userServer.Close()
+	var listener net.Listener
+	var err error
 
-	logrus.Infof("User server started on %s", userServer.Addr())
+	addr := portToAddr(s.config.ServerPort)
 
-	for {
-		conn, err := userServer.Accept()
+	if s.config.Cert.Enabled {
+		logrus.Infof("Setting up TLS for domain %s", s.config.Domain)
+		certInfo := s.certInfo()
+
+		tlsConfig, err := certmanager.GetTLSConfigWithLetsEncrypt(certInfo)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to accept user connection")
-			continue
+			errChan <- fmt.Errorf("failed to get TLS config: %w", err)
+			return
 		}
 
-		conn.SetDeadline(time.Now().Add(connectionTimeout))
+		listener, err = tls.Listen("tcp", addr, tlsConfig)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to start TLS user server: %w", err)
+			return
+		}
+		logrus.Infof(
+			"HTTPS server started on %s with TLS for domain %s",
+			listener.Addr(),
+			s.config.Domain,
+		)
+	} else {
+		listener, err = net.Listen("tcp", addr)
+		if err != nil {
+			errChan <- fmt.Errorf("failed to start user server: %w", err)
+			return
+		}
+		logrus.Infof("HTTP server started on %s", listener.Addr())
+	}
+	defer listener.Close()
 
-		go func(conn net.Conn) {
-			defer conn.Close()
-			s.serverRouter.HandleHTTPConnection(conn)
-		}(conn)
+	for {
+		select {
+		case <-ctx.Done():
+			logrus.Info("Server context done, shutting down http server")
+			return
+		default:
+			conn, err := listener.Accept()
+			if err != nil {
+				logrus.WithError(err).Error("Failed to accept user connection")
+				continue
+			}
+
+			conn.SetDeadline(time.Now().Add(connectionTimeout))
+
+			go func(conn net.Conn) {
+				defer conn.Close()
+				s.connManager.HandleHTTPConnection(conn)
+			}(conn)
+		}
 	}
 }
 
@@ -125,7 +165,7 @@ func (s *Server) updater(ctx context.Context, errChan chan error) {
 func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	quicServer, err := gunnelquic.NewServer(portToAddr(s.clientPort))
+	quicServer, err := gunnelquic.NewServer(portToAddr(s.config.QuicPort))
 	if err != nil {
 		errChan <- fmt.Errorf("failed to start QUIC server: %w", err)
 		return
@@ -151,20 +191,8 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 
 		go func(conn quic.Connection) {
 			defer conn.CloseWithError(0, "")
-			s.serverRouter.HandleConnection(transp)
+			s.connManager.HandleConnection(transp)
 		}(conn)
-	}
-}
-
-func (s *Server) StartWebUI(errChan chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	logrus.Infof("WebUI server started on [::]%s", s.webUI.Addr())
-
-	if err := s.webUI.Start(); err != nil {
-		logrus.WithError(err).Error("Failed to start web UI")
-		errChan <- err
-		return
 	}
 }
 

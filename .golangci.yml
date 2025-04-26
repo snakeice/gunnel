@@ -139,6 +139,17 @@ linters:
     #- wsl # [too strict and mostly code is not more readable] whitespace linter forces you to use empty lines
 
   settings:
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+      disable-default-exclusions: true
+      exclude-functions:
+        - "file.Close"
+
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
     cyclop:
       # The maximal code complexity to report.
       # Default: 10
@@ -192,12 +203,6 @@ linters:
           deny:
             - pkg: "log$"
               desc: "Use log/slog instead, see https://go.dev/blog/slog"
-
-    errcheck:
-      # Report about not checking of errors in type assertions: `a := b.(MyStruct)`.
-      # Such cases aren't reported by default.
-      # Default: false
-      check-type-assertions: true
 
     exhaustive:
       # Program elements to check for exhaustiveness.
@@ -288,6 +293,7 @@ linters:
           # Default: false
           strict: false
 
+
     inamedparam:
       # Skips check for interface methods with only a single parameter.
       # Default: false
@@ -372,6 +378,8 @@ linters:
 
   exclusions:
     rules:
+      - source: "err :="
+        linters: [ govet ]
       - source: "(noinspection|TODO)"
         linters: [ godot ]
       - source: "//noinspection"

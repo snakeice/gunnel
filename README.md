@@ -29,6 +29,7 @@ Gunnel is a tunneling solution designed to securely expose your local services t
 - Implement a improved dashboard for monitoring connections and performance
 - Add more detailed logging and metrics
 - Add support for subdomain generation for dynamic tunnels
+- Support TCP tunneling with custom ports
 
 ## Architecture
 

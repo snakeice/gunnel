@@ -164,6 +164,13 @@ func (t *streamClient) Read(p []byte) (int, error) {
 
 	t.metricsInfo.UpdateIn(n)
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			logrus.WithFields(logrus.Fields{
+				"stream_id": t.ID(),
+			}).Debug("EOF reached in transport read")
+			return n, err
+		}
+
 		logrus.WithFields(logrus.Fields{
 			"error":     err,
 			"stream_id": t.ID(),

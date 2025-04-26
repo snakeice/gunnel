@@ -17,8 +17,8 @@ var templates embed.FS
 
 // WebUI handles the web interface for displaying tunnel status and requests.
 type WebUI struct {
-	router    *manager.Manager
-	server    *http.Server
+	mngr      *manager.Manager
+	Mux       *http.ServeMux
 	mu        sync.RWMutex
 	startTime time.Time
 	stats     map[string]any
@@ -27,9 +27,9 @@ type WebUI struct {
 }
 
 // NewWebUI creates a new WebUI instance.
-func NewWebUI(router *manager.Manager, addr string) *WebUI {
+func NewWebUI(router *manager.Manager) *WebUI {
 	webui := &WebUI{
-		router:    router,
+		mngr:      router,
 		startTime: time.Now(),
 		stats:     make(map[string]any),
 		clients:   make([]map[string]any, 0),
@@ -42,32 +42,25 @@ func NewWebUI(router *manager.Manager, addr string) *WebUI {
 	mux.HandleFunc("/api/clients", webui.handleClients)
 	mux.HandleFunc("/api/streams", webui.handleStreams)
 
-	webui.server = &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	webui.Mux = mux
 
 	return webui
 }
 
-// Start starts the web UI server.
-func (ui *WebUI) Start() error {
-	return ui.server.ListenAndServe()
-}
+func (ui *WebUI) HandleRequest(w http.ResponseWriter, r *http.Request) {
+	ui.mu.RLock()
+	defer ui.mu.RUnlock()
 
-// Stop stops the web UI server.
-func (ui *WebUI) Stop() error {
-	return ui.server.Close()
-}
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-// Addr returns the address of the web UI server.
-func (ui *WebUI) Addr() string {
-	return ui.server.Addr
+	ui.Mux.ServeHTTP(w, r)
 }
 
 // handleIndex serves the main web interface.
-func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (ui *WebUI) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	content, err := templates.ReadFile("templates/index.html")
 	if err != nil {
 		http.Error(w, "Failed to read template", http.StatusInternalServerError)
@@ -75,11 +68,13 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	w.Write(content)
+	if _, err := w.Write(content); err != nil {
+		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+	}
 }
 
 // handleStats serves the stats API endpoint.
-func (ui *WebUI) handleStats(w http.ResponseWriter, r *http.Request) {
+func (ui *WebUI) handleStats(w http.ResponseWriter, _ *http.Request) {
 	ui.mu.RLock()
 	defer ui.mu.RUnlock()
 
@@ -88,7 +83,10 @@ func (ui *WebUI) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats["total_clients"] = len(ui.clients)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
+	}
 }
 
 // handleClients serves the clients API endpoint.
@@ -97,16 +95,22 @@ func (ui *WebUI) handleClients(w http.ResponseWriter, r *http.Request) {
 	defer ui.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ui.clients)
+	if err := json.NewEncoder(w).Encode(ui.clients); err != nil {
+		http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleStreams serves the streams API endpoint.
-func (ui *WebUI) handleStreams(w http.ResponseWriter, r *http.Request) {
+func (ui *WebUI) handleStreams(w http.ResponseWriter, _ *http.Request) {
 	ui.mu.RLock()
 	defer ui.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(ui.streams)
+	if err := json.NewEncoder(w).Encode(ui.streams); err != nil {
+		http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
+		return
+	}
 }
 
 // UpdateStats updates the stats with current information.
@@ -154,7 +158,7 @@ func (ui *WebUI) UpdateStats() {
 	}
 
 	// Update clients
-	ui.router.ForEachClient(func(subdomain string, info *connection.Connection) {
+	ui.mngr.ForEachClient(func(subdomain string, info *connection.Connection) {
 		ui.clients = append(ui.clients, map[string]any{
 			"subdomain":   subdomain,
 			"connections": info.GetConnCount(subdomain),

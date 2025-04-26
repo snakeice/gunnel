@@ -168,7 +168,7 @@ func (t *connectionTransport) Len() int {
 func (t *connectionTransport) LenActive(subdomain ...string) int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	var count int = 0
+	var count = 0
 	sub := ""
 	if len(subdomain) > 0 {
 		sub = subdomain[0]

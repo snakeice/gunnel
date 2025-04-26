@@ -4,7 +4,8 @@ backend:
     port: 3000
     subdomain: test
     protocol: http
-  test2: 
+  svc: 
+    host:
     port: 3000
-    subdomain: test2
+    subdomain: svc
     protocol: http

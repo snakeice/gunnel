@@ -52,7 +52,8 @@ func NewServer(addr string) (*Server, error) {
 // NewClient creates a new QUIC client.
 func NewClient(addr string) (*Client, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: true, //nolint:gosec // For testing purposes only
+		MinVersion:         tls.VersionTLS13,
 	}
 
 	config := generateQuicConfig()
@@ -143,6 +144,7 @@ func generateTLSConfig() (*tls.Config, error) {
 	}
 
 	return &tls.Config{
+		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{tlsCert},
 	}, nil
 }

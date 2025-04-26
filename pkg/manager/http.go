@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"time"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/protocol"
 	"github.com/snakeice/gunnel/pkg/tunnel"
@@ -30,6 +31,10 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 	}
 
 	subdomain := extractSubdomain(req)
+	if subdomain == "gunnel" {
+		r.handleGunnel(conn, req)
+		return
+	}
 
 	logger := logrus.WithFields(logrus.Fields{
 		"subdomain": subdomain,
@@ -65,7 +70,7 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 
 	logger.Debug("Sending begin connection message")
 
-	if err := stream.Send(beginMsg); err != nil {
+	if err = stream.Send(beginMsg); err != nil {
 		logger.WithError(err).Error("Failed to send begin connection message")
 		SendHttpResponse(conn, 500, "Failed to send begin connection message: %s", err)
 		return
@@ -96,7 +101,7 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 				return
 			}
 
-			switch msg.Type {
+			switch msg.Type { //nolint:exhaustive // this switch not exhaustive
 			case protocol.MessageEndStream:
 				logger.WithError(err).Debug("Received end connection message")
 				// We're done receiving data
@@ -110,18 +115,23 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 				readyChan <- struct{}{}
 
 				// If it's not an end message, it's data
-				if _, err := respBuf.Write(msg.Payload); err != nil {
+				if _, err = respBuf.Write(msg.Payload); err != nil {
 					logger.WithError(err).Error("Failed to write to buffer")
 					respChan <- fmt.Errorf("failed to write to buffer: %w", err)
 					return
 				}
 
 				tun := tunnel.NewTunnelWithLocal(conn, stream)
-				defer tun.Close()
 
-				if err := tun.Proxy(); err != nil {
+				if err = tun.Proxy(); err != nil {
 					logger.WithError(err).Error("Failed to proxy data")
 					respChan <- fmt.Errorf("failed to proxy data: %w", err)
+					return
+				}
+
+				if err = tun.Close(); err != nil {
+					logger.WithError(err).Error("Failed to close tunnel")
+					respChan <- fmt.Errorf("failed to close tunnel: %w", err)
 					return
 				}
 
@@ -180,4 +190,19 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 	// }
 
 	// logger.Debug("Successfully wrote response to client")
+}
+
+func (m *Manager) handleGunnel(conn net.Conn, req *http.Request) {
+	if m.gunnelSubdomainHandler == nil {
+		SendHttpResponse(conn, 500, "Gunnel subdomain handler not set")
+		return
+	}
+
+	resWriter := NewResponseWriterWrapper(conn)
+
+	if !certmagic.DefaultACME.HandleHTTPChallenge(resWriter, req) {
+		m.gunnelSubdomainHandler(resWriter, req)
+	}
+
+	resWriter.Flush()
 }

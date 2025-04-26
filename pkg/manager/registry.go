@@ -11,17 +11,17 @@ import (
 )
 
 // HandleConnection handles a new connection.
-func (r *Manager) HandleConnection(transp transport.Transport) {
-	client := connection.New(transp, r.HandleStream)
+func (m *Manager) HandleConnection(transp transport.Transport) {
+	client := connection.New(transp, m.HandleStream)
 	client.Start()
 
 	streamChan := make(chan transport.Stream)
-	go r.acceptStreams(transp, streamChan)
+	go m.acceptStreams(transp, streamChan)
 
 	for {
 		select {
 		case stream := <-streamChan:
-			go r.HandleStreamDude(stream)
+			go m.HandleStreamDude(stream)
 		case <-transp.Root().Context().Done():
 			logrus.Info("Transport context done, stopping stream handling")
 			return
@@ -29,7 +29,7 @@ func (r *Manager) HandleConnection(transp transport.Transport) {
 	}
 }
 
-func (r *Manager) acceptStreams(transp transport.Transport, streamChan chan transport.Stream) {
+func (m *Manager) acceptStreams(transp transport.Transport, streamChan chan transport.Stream) {
 	defer close(streamChan)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), streamAcceptTimeout)
@@ -54,7 +54,7 @@ func (r *Manager) acceptStreams(transp transport.Transport, streamChan chan tran
 	}
 }
 
-func (r *Manager) HandleStreamDude(stream transport.Stream) {
+func (m *Manager) HandleStreamDude(stream transport.Stream) {
 	for {
 		buf := make([]byte, 4)
 		_, err := stream.Read(buf)

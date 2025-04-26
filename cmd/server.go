@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/snakeice/gunnel/pkg/server"
@@ -9,10 +10,7 @@ import (
 
 func AddServerCmd(rootCmd *cobra.Command) error {
 	var (
-		serverPort     int
-		clientPort     int
-		serverProtocol string
-		webUIPort      int
+		configFile string
 	)
 
 	var serverCmd = &cobra.Command{
@@ -22,12 +20,18 @@ func AddServerCmd(rootCmd *cobra.Command) error {
 The server supports both HTTP and TCP protocols for local service connections.
 Uses separate ports for client-server communication and user connections.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			srv := server.NewServer(
-				serverPort,
-				clientPort,
-				serverProtocol,
-				webUIPort,
-			)
+			config := server.DefaultConfig()
+			if configFile != "" {
+				err := config.LoadConfig(configFile)
+				if err != nil {
+					return fmt.Errorf("failed to load config: %w", err)
+				}
+			}
+
+			a, _ := json.MarshalIndent(config, "", "  ")
+			fmt.Printf("Config: %s\n", string(a))
+
+			srv := server.NewServer(config)
 
 			// Start HTTP/TCP server for user connections
 			if err := srv.Start(cmd.Context()); err != nil {
@@ -40,16 +44,7 @@ Uses separate ports for client-server communication and user connections.`,
 	rootCmd.AddCommand(serverCmd)
 
 	serverCmd.Flags().
-		IntVarP(&serverPort, "port", "p", 8080, "Port to listen on for user connections")
-	serverCmd.Flags().
-		IntVarP(&clientPort, "client-port", "c", 8081, "Port to listen on for client connections")
-	serverCmd.Flags().
-		StringVarP(&serverProtocol, "protocol", "P", "http", "Protocol to use for local service (http or tcp)")
-	serverCmd.Flags().IntVarP(&webUIPort, "webui-port", "w", 8082, "Port to listen on for web UI")
-
-	if err := serverCmd.MarkFlagRequired("port"); err != nil {
-		return err
-	}
+		StringVarP(&configFile, "config", "f", "", "Path to the server configuration file")
 
 	return nil
 }

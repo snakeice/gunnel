@@ -14,7 +14,7 @@ import (
 
 // Tunnel represents a bidirectional tunnel between two connections.
 type Tunnel struct {
-	local  io.ReadWriteCloser
+	local  net.Conn
 	remote transport.Stream
 	mu     sync.Mutex
 }
@@ -37,7 +37,7 @@ func NewTunnel(addr string, remote transport.Stream) (*Tunnel, error) {
 	}, nil
 }
 
-func NewTunnelWithLocal(local io.ReadWriteCloser, remote transport.Stream) *Tunnel {
+func NewTunnelWithLocal(local net.Conn, remote transport.Stream) *Tunnel {
 	return &Tunnel{
 		local:  local,
 		remote: remote,
@@ -54,7 +54,7 @@ func (t *Tunnel) Proxy() error {
 
 		logrus.WithFields(logrus.Fields{
 			"direction": "remote_to_local",
-			"local":     t.local.(net.Conn).LocalAddr().String(),
+			"local":     t.local.LocalAddr().String(),
 			"remote":    t.remote.ID(),
 		}).Debug("Starting remote to local copy")
 		if err := t.copy(t.remote, t.local); err != nil {
@@ -64,17 +64,15 @@ func (t *Tunnel) Proxy() error {
 			}).Error("Error copying from remote to local")
 		}
 		// Send EOF to local service
-		if localConn, ok := t.local.(net.Conn); ok {
-			if err := localConn.Close(); err != nil {
-				logrus.WithFields(logrus.Fields{
-					"error":     err,
-					"direction": "remote_to_local",
-				}).Error("Failed to close local connection")
-			} else {
-				logrus.WithFields(logrus.Fields{
-					"direction": "remote_to_local",
-				}).Debug("Closed local connection")
-			}
+		if err := t.local.Close(); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"error":     err,
+				"direction": "remote_to_local",
+			}).Error("Failed to close local connection")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"direction": "remote_to_local",
+			}).Debug("Closed local connection")
 		}
 	}()
 
@@ -82,7 +80,7 @@ func (t *Tunnel) Proxy() error {
 		defer func() { waitCh <- struct{}{} }()
 		logrus.WithFields(logrus.Fields{
 			"direction": "local_to_remote",
-			"local":     t.local.(net.Conn).LocalAddr().String(),
+			"local":     t.local.LocalAddr().String(),
 			"remote":    t.remote.ID(),
 		}).Debug("Starting local to remote copy")
 		if err := t.copy(t.local, t.remote); err != nil {
@@ -181,16 +179,23 @@ func (t *Tunnel) copy(dst io.Writer, src io.Reader) error {
 }
 
 // Close closes both connections.
-func (t *Tunnel) Close() {
+func (t *Tunnel) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	if t.local != nil {
-		t.local.Close()
+		if err := t.local.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			return fmt.Errorf("failed to close local connection: %w", err)
+		}
 	}
+
 	if t.remote != nil {
-		t.remote.Close()
+		if err := t.remote.Close(); err != nil {
+			return fmt.Errorf("failed to close remote connection: %w", err)
+		}
 	}
+
+	return nil
 }
 
 // CloseLocal closes only the local connection.
@@ -199,6 +204,8 @@ func (t *Tunnel) CloseLocal() {
 	defer t.mu.Unlock()
 
 	if t.local != nil {
-		t.local.Close()
+		if err := t.local.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logrus.WithError(err).Error("Failed to close local connection")
+		}
 	}
 }

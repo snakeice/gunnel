@@ -4,9 +4,7 @@ tmp_dir = "tmp"
 
 [build]
   args_bin = [
-    "server",
-    "--port",
-    "8080"
+    "server"
   ]
   bin = "./tmp/main"
   cmd = "go build -o ./tmp/main ."
@@ -26,7 +24,7 @@ tmp_dir = "tmp"
   poll_interval = 0
   post_cmd = []
   pre_cmd = []
-  rerun = true
+  rerun = false
   rerun_delay = 500
   send_interrupt = false
   stop_on_error = false

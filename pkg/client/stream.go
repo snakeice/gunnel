@@ -16,6 +16,16 @@ func (c *Client) handleStream(
 	strm transport.Stream,
 	logger *logrus.Entry,
 ) error {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithField("panic", r).Error("Stream handler panicked")
+		}
+		logger.Debug("Releasing stream")
+		if err := strm.Close(); err != nil {
+			logger.WithError(err).Error("Failed to close stream")
+		}
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -26,13 +36,13 @@ func (c *Client) handleStream(
 		// Read message
 		msg, err := strm.Receive()
 		if err != nil {
-			return fmt.Errorf("Failed to read message from server, closing connection: %w", err)
+			return fmt.Errorf("failed to read message from server, closing connection: %w", err)
 		}
 
 		logger.WithField("msg_size", msg.Length).Debug("Received message from server")
 
 		// Handle message
-		switch msg.Type {
+		switch msg.Type { //nolint:exhaustive // this switch not exhaustive
 		case protocol.MessageBeginStream:
 			beginMsg := protocol.BeginConnection{}
 			protocol.Unmarshal(&beginMsg, msg)
@@ -110,7 +120,11 @@ func (c *Client) handleStream(
 
 			logger.WithField("error", errMsg.Message).Error("Server sent error")
 		default:
-			_ = strm.Send(protocol.NewErrorMessage("Unknown message type"))
+			err = strm.Send(protocol.NewErrorMessage("Unknown message type"))
+			if err != nil {
+				logger.WithError(err).Error("Failed to send error message")
+			}
+
 			return fmt.Errorf("unknown message type: %s", msg.Type)
 		}
 	}

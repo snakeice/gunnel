@@ -23,6 +23,7 @@ type streamMetrics struct {
 	totalOut atomic.Int64
 }
 
+//nolint:gochecknoglobals // This is a global variable for metrics collection.
 var metricsCollector *streamMetrics = &streamMetrics{
 	streams: make([]*StreamInfo, 0),
 }

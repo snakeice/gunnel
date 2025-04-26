@@ -43,10 +43,9 @@ func (m *Message) Write(w io.Writer) (int, error) {
 
 // ReadMessage reads a message from the given reader.
 func ReadMessage(r io.Reader) (int, *Message, error) {
-	read := 0
-
 	header := make([]byte, HeaderSize)
-	if read, err := io.ReadFull(r, header); err != nil {
+	read, err := io.ReadFull(r, header)
+	if err != nil {
 		return read, nil, err
 	}
 
@@ -103,7 +102,7 @@ func (c *CloseConnection) Marshal() *Message {
 
 	return &Message{
 		Type:    MessageDisconnect,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -115,7 +114,7 @@ func (h *Heartbeat) Marshal() *Message {
 
 	return &Message{
 		Type:    MessageHeartbeat,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -127,7 +126,7 @@ func (e *ErrorMessage) Marshal() *Message {
 
 	return &Message{
 		Type:    MessageError,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -186,12 +185,12 @@ func NewErrorMessage(message string) *ErrorMessage {
 // Marshal converts a BeginConnection to a byte slice.
 func (b *BeginConnection) Marshal() *Message {
 	payload := []byte{}
-	payload = binary.BigEndian.AppendUint32(payload, uint32(len(b.Subdomain)))
+	payload = binary.BigEndian.AppendUint32(payload, lenUint32(b.Subdomain))
 	payload = append(payload, []byte(b.Subdomain)...)
 
 	return &Message{
 		Type:    MessageBeginStream,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -199,12 +198,12 @@ func (b *BeginConnection) Marshal() *Message {
 // Marshal converts an EndConnection to a byte slice.
 func (e *EndConnection) Marshal() *Message {
 	payload := []byte{}
-	payload = binary.BigEndian.AppendUint32(payload, uint32(len(e.Subdomain)))
+	payload = binary.BigEndian.AppendUint32(payload, lenUint32(e.Subdomain))
 	payload = append(payload, []byte(e.Subdomain)...)
 
 	return &Message{
 		Type:    MessageEndStream,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -232,12 +231,12 @@ func (e *EndConnection) Unmarshal(payload []byte) {
 // Marshal converts a ConnectionReady to a byte slice.
 func (c *ConnectionReady) Marshal() *Message {
 	payload := []byte{}
-	payload = binary.BigEndian.AppendUint32(payload, uint32(len(c.Subdomain)))
+	payload = binary.BigEndian.AppendUint32(payload, lenUint32(c.Subdomain))
 	payload = append(payload, []byte(c.Subdomain)...)
 
 	return &Message{
 		Type:    MessageConnectionReady,
-		Length:  uint32(len(payload)),
+		Length:  lenUint32(payload),
 		Payload: payload,
 	}
 }
@@ -250,4 +249,17 @@ func (c *ConnectionReady) Unmarshal(payload []byte) {
 	offset += 4
 
 	c.Subdomain = string(payload[offset : offset+int(subdomainLen)])
+}
+
+type lenSupported interface {
+	~[]byte | ~string
+}
+
+func lenUint32[T lenSupported](b T) uint32 {
+	l := len(b)
+
+	if l > int(^uint32(0)) {
+		panic("integer overflow: value exceeds uint32 range")
+	}
+	return uint32(l)
 }
