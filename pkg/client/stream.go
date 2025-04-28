@@ -78,30 +78,13 @@ func (c *Client) handleStream(
 
 			logger.Info("Connection ready for proxying")
 
-			// Start bidirectional tunneling
-			logger.Debug("Starting proxy operation")
-
 			if err := t.Proxy(); err != nil {
 				return fmt.Errorf("proxy operation failed: %w", err)
 			}
 
 			logger.Debug("Proxy completed successfully")
 
-			// Send end connection message
-			endMsg := &protocol.EndConnection{
-				Subdomain: beginMsg.Subdomain,
-			}
-			logger.Debug("Sending end connection message")
-			if err := strm.Send(endMsg); err != nil {
-				logger.WithFields(logrus.Fields{
-					"error":     err,
-					"subdomain": beginMsg.Subdomain,
-					"client_id": strm.ID(),
-				}).Error("Failed to send end connection message")
-			} else {
-				logger.Debug("Sent end connection message")
-			}
-
+			return nil
 		case protocol.MessageEndStream:
 			logger.Info("Received end stream message")
 			return nil

@@ -12,4 +12,4 @@ debug-scenario = "./scripts/debug-watch.sh"
 
 [tools]
 go = "1.24.2"
-golangci-lint = "2.1.2"
+golangci-lint = "2.1.5"

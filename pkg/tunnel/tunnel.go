@@ -64,16 +64,16 @@ func (t *Tunnel) Proxy() error {
 			}).Error("Error copying from remote to local")
 		}
 		// Send EOF to local service
-		if err := t.local.Close(); err != nil {
-			logrus.WithFields(logrus.Fields{
-				"error":     err,
-				"direction": "remote_to_local",
-			}).Error("Failed to close local connection")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"direction": "remote_to_local",
-			}).Debug("Closed local connection")
-		}
+		// if err := t.local.Close(); err != nil {
+		// 	logrus.WithFields(logrus.Fields{
+		// 		"error":     err,
+		// 		"direction": "remote_to_local",
+		// 	}).Error("Failed to close local connection")
+		// } else {
+		// 	logrus.WithFields(logrus.Fields{
+		// 		"direction": "remote_to_local",
+		// 	}).Debug("Closed local connection")
+		// }
 	}()
 
 	go func() {
@@ -89,17 +89,17 @@ func (t *Tunnel) Proxy() error {
 				"direction": "local_to_remote",
 			}).Error("Error copying from local to remote")
 		}
-		// Send EOF to remote
-		if err := t.remote.Close(); err != nil {
-			logrus.WithFields(logrus.Fields{
-				"error":     err,
-				"direction": "local_to_remote",
-			}).Error("Failed to close remote connection")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"direction": "local_to_remote",
-			}).Debug("Closed remote connection")
-		}
+		// // Send EOF to remote
+		// if err := t.remote.Close(); err != nil {
+		// 	logrus.WithFields(logrus.Fields{
+		// 		"error":     err,
+		// 		"direction": "local_to_remote",
+		// 	}).Error("Failed to close remote connection")
+		// } else {
+		// 	logrus.WithFields(logrus.Fields{
+		// 		"direction": "local_to_remote",
+		// 	}).Debug("Closed remote connection")
+		// }
 	}()
 
 	<-waitCh
@@ -124,7 +124,7 @@ func (t *Tunnel) copy(dst io.Writer, src io.Reader) error {
 
 		n, err := src.Read(buf)
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 				logrus.WithFields(logrus.Fields{
 					"total_bytes": totalBytes,
 					"read_count":  readCount,
@@ -187,12 +187,16 @@ func (t *Tunnel) Close() error {
 		if err := t.local.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			return fmt.Errorf("failed to close local connection: %w", err)
 		}
+
+		t.local = nil
 	}
 
 	if t.remote != nil {
 		if err := t.remote.Close(); err != nil {
 			return fmt.Errorf("failed to close remote connection: %w", err)
 		}
+
+		t.remote = nil
 	}
 
 	return nil

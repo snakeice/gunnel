@@ -61,12 +61,18 @@ go install github.com/snakeice/gunnel@latest
 
 ## Usage
 
+Gunnel can be run in either server or client mode and is configured using YAML configuration files.
+
 ### Server Mode
 
 Start the server on a public machine:
 
 ```bash
-gunnel server --port 8080
+# Using default configuration
+gunnel server
+
+# Using a custom configuration file
+gunnel server -c ./example/server.yaml
 ```
 
 ### Client Mode
@@ -74,27 +80,57 @@ gunnel server --port 8080
 Start the client on your local machine:
 
 ```bash
-gunnel client \
-  --host your-server.com \
-  --port 8080 \
-  --subdomain myapp \
-  --local-port 3000 \
-  --protocol http
+# Using default configuration file (gunnel.yaml)
+gunnel client
+
+# Using a custom configuration file
+gunnel client -c ./example/client.yaml
 ```
 
-### Configuration Options
+### Using Configuration Files
+
+Gunnel uses YAML configuration files for both server and client modes. Example files are provided in the `example/` directory.
+
+#### Server Configuration Example
+
+```yaml
+# example/server.yaml
+domain: test.example.com
+tls:
+  enable: true
+  email: admin@example.com
+  production: false  # Set to true for production Let's Encrypt certificates
+```
+
+#### Client Configuration Example
+
+```yaml
+# example/client.yaml
+server:
+  host: your-server.com
+  port: 8080
+tunnels:
+  - subdomain: myapp
+    local_port: 3000
+    protocol: http
+  - subdomain: db
+    local_port: 3306
+    protocol: tcp
+```
+
+### Command-Line Options
+
+#### Global Options
+
+- `--log-level`, `-l`: Set the logging level (trace, debug, info, warn, error, fatal, panic) (default: trace)
 
 #### Server Options
 
-- `--port`: Port to listen on (default: 8080)
+- `--config`, `-c`: Path to the server configuration file
 
 #### Client Options
 
-- `--host`: Server host to connect to (default: localhost)
-- `--port`: Server port to connect to (default: 8080)
-- `--subdomain`: Subdomain for the tunnel (required)
-- `--local-port`: Local port to proxy (required)
-- `--protocol`: Protocol to use (http or tcp) (default: http)
+- `--config`, `-c`: Path to the client configuration file (default: gunnel.yaml)
 
 ## Examples
 

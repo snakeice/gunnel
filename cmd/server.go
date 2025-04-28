@@ -44,7 +44,7 @@ Uses separate ports for client-server communication and user connections.`,
 	rootCmd.AddCommand(serverCmd)
 
 	serverCmd.Flags().
-		StringVarP(&configFile, "config", "f", "", "Path to the server configuration file")
+		StringVarP(&configFile, "config", "c", "", "Path to the server configuration file")
 
 	return nil
 }
