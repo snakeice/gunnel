@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/pprof"
+	"os"
 	"sync"
 	"time"
 
@@ -37,6 +40,9 @@ func NewServer(config *Config) *Server {
 	webUI := webui.NewWebUI(m)
 
 	m.SetGunnelSubdomainHandler(webUI.HandleRequest)
+	if config.Token != "" {
+		m.SetTokenValidator(func(token string) bool { return token == config.Token })
+	}
 
 	s := &Server{
 		config:      config,
@@ -58,6 +64,7 @@ func (s *Server) Start(ctx context.Context) error {
 		cancel()
 	}()
 
+	s.startPprofIfEnabled(ctx)
 	errChan := make(chan error)
 
 	wg := &sync.WaitGroup{}
@@ -108,14 +115,19 @@ func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sy
 			s.config.Domain,
 		)
 	} else {
-		listener, err = net.Listen("tcp", addr)
+		lc := net.ListenConfig{}
+		listener, err = lc.Listen(ctx, "tcp", addr)
 		if err != nil {
 			errChan <- fmt.Errorf("failed to start user server: %w", err)
 			return
 		}
 		logrus.Infof("HTTP server started on %s", listener.Addr())
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			logrus.WithError(err).Warn("failed to close HTTP listener")
+		}
+	}()
 
 	for {
 		select {
@@ -129,10 +141,16 @@ func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sy
 				continue
 			}
 
-			conn.SetDeadline(time.Now().Add(connectionTimeout))
+			if err := conn.SetDeadline(time.Now().Add(connectionTimeout)); err != nil {
+				logrus.WithError(err).Warn("Failed to set user connection deadline")
+			}
 
 			go func(conn net.Conn) {
-				defer conn.Close()
+				defer func() {
+					if cerr := conn.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
+						logrus.WithError(cerr).Warn("Failed to close user connection")
+					}
+				}()
 				s.connManager.HandleHTTPConnection(conn)
 			}(conn)
 		}
@@ -170,7 +188,11 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 		errChan <- fmt.Errorf("failed to start QUIC server: %w", err)
 		return
 	}
-	defer quicServer.Close()
+	defer func() {
+		if err := quicServer.Close(); err != nil {
+			logrus.WithError(err).Warn("failed to close QUIC server")
+		}
+	}()
 
 	logrus.Infof("QUIC server started on %s", quicServer.Addr())
 
@@ -190,10 +212,53 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 		}
 
 		go func(conn quic.Connection) {
-			defer conn.CloseWithError(0, "")
+			defer func() {
+				if err := conn.CloseWithError(0, ""); err != nil {
+					logrus.WithError(err).Warn("failed to close QUIC connection")
+				}
+			}()
 			s.connManager.HandleConnection(transp)
 		}(conn)
 	}
+}
+
+func (s *Server) startPprofIfEnabled(ctx context.Context) {
+	addr := os.Getenv("GUNNEL_PPROF_ADDR")
+	if addr == "" {
+		if os.Getenv("GUNNEL_PPROF") == "" {
+			return
+		}
+		addr = "127.0.0.1:6060"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		logrus.Infof("pprof listener enabled on %s (set GUNNEL_PPROF_ADDR to change)", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logrus.WithError(err).Warn("pprof server exited")
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logrus.WithError(err).Warn("pprof server shutdown error")
+		}
+	}()
 }
 
 func portToAddr(port int) string {

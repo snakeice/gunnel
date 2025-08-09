@@ -8,15 +8,11 @@ import (
 )
 
 func (c *Connection) handleMessage(msg *protocol.Message) {
-	c.mu.Lock()
-	c.lastActive = time.Now()
-	c.mu.Unlock()
+	c.markActive()
 
 	switch msg.Type { //nolint:exhaustive // this switch not exhaustive
 	case protocol.MessageHeartbeat:
-		c.mu.Lock()
 		c.heartbeatStats.last = time.Now()
-		c.mu.Unlock()
 		atomic.AddInt64(&c.heartbeatStats.received, 1)
 
 		if !c.heartbeatEmitter {
@@ -38,7 +34,9 @@ func (c *Connection) handleMessage(msg *protocol.Message) {
 
 	default:
 		if c.handler != nil {
-			c.handler(c, msg)
+			if err := c.handler(c, msg); err != nil {
+				c.logger.WithError(err).Errorf("Handler error for message type: %s", msg.Type)
+			}
 		} else {
 			c.logger.Warnf("No handler registered for message type: %s", msg.Type)
 		}

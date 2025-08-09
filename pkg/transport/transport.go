@@ -17,7 +17,7 @@ type StreamHandler func(stream quic.Stream) error
 
 type Transport interface {
 	Addr() string
-	Close() error
+	Close()
 	Acquire() (Stream, error)
 	Release(stream Stream) error
 	AcceptStream(ctx context.Context) (Stream, error)
@@ -105,8 +105,8 @@ func (t *connectionTransport) Acquire() (Stream, error) {
 	}
 
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.streams = append(t.streams, streamHandler)
-	t.mu.Unlock()
 
 	return streamHandler, nil
 }
@@ -122,8 +122,8 @@ func (t *connectionTransport) AcceptStream(ctx context.Context) (Stream, error) 
 	streamHandler := newStreamHandler(stream)
 
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.streams = append(t.streams, streamHandler)
-	t.mu.Unlock()
 
 	return streamHandler, nil
 }
@@ -136,27 +136,40 @@ func (t *connectionTransport) Release(stream Stream) error {
 	return nil
 }
 
-func (t *connectionTransport) Close() error {
+func (t *connectionTransport) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.closed {
-		return nil
+		return
 	}
 	t.closed = true
 
 	if err := t.root.Close(); err != nil {
-		return fmt.Errorf("failed to close stream: %w", err)
+		logrus.WithError(err).Errorf("Failed to close root stream: %s", t.root.ID())
 	}
 
 	if t.client == nil {
-		return nil
+		return
 	}
 
 	if err := t.client.Close(); err != nil {
-		return fmt.Errorf("failed to close client: %w", err)
+		logrus.WithError(err).Errorf("Failed to close client: %s", t.client.Addr())
+		return
 	}
 
-	return t.client.Close()
+	for _, stream := range t.streams {
+		if err := stream.Close(); err != nil {
+			logrus.WithError(err).Errorf("Failed to close stream: %s", stream.ID())
+		}
+	}
+	t.streams = nil
+
+	logrus.Infof("Closed transport connection: %s", t.client.Addr())
+	if t.server {
+		logrus.Infof("Server transport connection closed: %s", t.client.Addr())
+	} else {
+		logrus.Infof("Client transport connection closed: %s", t.client.Addr())
+	}
 }
 
 func (t *connectionTransport) Len() int {
@@ -183,6 +196,51 @@ func (t *connectionTransport) LenActive(subdomain ...string) int {
 }
 
 // cleanupInactiveStreams removes streams that have been inactive for too long.
+func (t *connectionTransport) findInactiveStreamIDs(maxInactive time.Duration) []int {
+	var ids []int
+
+	t.mu.RLock()
+	for id, stream := range t.streams {
+		if !stream.metricsInfo.IsActive &&
+			time.Since(stream.metricsInfo.LastActive) >= maxInactive {
+			ids = append(ids, id)
+			logrus.Infof("Marking inactive stream %s for removal", stream.ID())
+		}
+	}
+	t.mu.RUnlock()
+
+	return ids
+}
+
+func (t *connectionTransport) closeStreamsByID(ids []int) {
+	for _, id := range ids {
+		if id < len(t.streams) {
+			stream := t.streams[id]
+			if err := stream.Close(); err != nil {
+				logrus.WithError(err).Errorf("Failed to close stream %s", stream.ID())
+			}
+		}
+	}
+}
+
+func (t *connectionTransport) removeStreamsByID(ids []int) {
+	if len(ids) == 0 {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	slices.Sort(ids)
+	slices.Reverse(ids)
+
+	for _, id := range ids {
+		if id < len(t.streams) {
+			t.streams = slices.Delete(t.streams, id, id+1)
+		}
+	}
+}
+
 func (t *connectionTransport) cleanupInactiveStreams(maxInactive time.Duration) {
 	timer := time.NewTicker(maxInactive)
 	defer timer.Stop()
@@ -192,20 +250,9 @@ func (t *connectionTransport) cleanupInactiveStreams(maxInactive time.Duration) 
 			continue
 		}
 
-		t.mu.RLock()
-		for id, stream := range t.streams {
-			if !stream.metricsInfo.IsActive &&
-				time.Since(stream.metricsInfo.LastActive) >= maxInactive {
-				logrus.Infof("Removing inactive stream %s", stream.ID())
-
-				if err := stream.Close(); err != nil {
-					logrus.WithError(err).Errorf("Failed to close stream %s", stream.ID())
-				}
-
-				t.streams = slices.Delete(t.streams, id, id+1)
-			}
-		}
-		t.mu.RUnlock()
+		streamsToRemove := t.findInactiveStreamIDs(maxInactive)
+		t.closeStreamsByID(streamsToRemove)
+		t.removeStreamsByID(streamsToRemove)
 	}
 }
 

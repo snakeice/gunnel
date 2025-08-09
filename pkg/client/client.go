@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -18,7 +19,7 @@ type Client struct {
 	conn           transport.Transport
 	mu             sync.Mutex
 	reconnectDelay time.Duration
-	protocol       protocol.Protocol
+	token          string
 	logger         *logrus.Entry
 }
 
@@ -33,6 +34,7 @@ func New(config *Config) (*Client, error) {
 		config:         config,
 		reconnectDelay: 5 * time.Second,
 		conn:           transp,
+		token:          os.Getenv("GUNNEL_TOKEN"),
 		logger: logrus.WithFields(
 			logrus.Fields{
 				"server_addr": config.ServerAddr,
@@ -84,7 +86,8 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 		Subdomain: backend.Subdomain,
 		Host:      backend.Host,
 		Port:      backend.Port,
-		Protocol:  c.protocol,
+		Protocol:  backend.Protocol,
+		Token:     c.token,
 	}
 
 	c.logger.Debug("Registering client with server")
@@ -122,11 +125,7 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 		return fmt.Errorf("server rejected connection: %s", connectionResponse.Message)
 	}
 
-	c.mu.Lock()
-	if backend.Subdomain == "" {
-		backend.Subdomain = connectionResponse.Subdomain
-	}
-	c.mu.Unlock()
+	backend.Subdomain = connectionResponse.Subdomain
 
 	c.logger.WithFields(logrus.Fields{
 		"subdomain": backend.Subdomain,
@@ -173,22 +172,27 @@ func (c *Client) worker(ctx context.Context) error {
 func (c *Client) reconnectLoop() {
 	for {
 		if c.conn == nil || c.conn.IsClosed() {
-			c.mu.Lock()
-			c.logger.Info("No active connections, attempting to reconnect")
+			func() {
+				c.mu.Lock()
+				defer c.mu.Unlock()
 
-			transp, err := transport.New(c.config.ServerAddr)
-			if err != nil {
-				c.logger.WithError(err).Error("Failed to create transport")
-				time.Sleep(c.reconnectDelay)
-				continue
-			}
+				c.logger.Info("No active connections, attempting to reconnect")
 
-			c.conn = transp
+				transp, err := transport.New(c.config.ServerAddr)
+				if err != nil {
+					c.logger.WithError(err).Error("Failed to create transport")
+					return
+				}
 
-			if err := c.register(); err != nil {
-				c.logger.WithError(err).Error("Failed to reconnect")
-			}
-			c.mu.Unlock()
+				c.conn = transp
+
+				if err := c.register(); err != nil {
+					c.logger.WithError(err).Error("Failed to reconnect")
+				}
+			}()
+
+			time.Sleep(c.reconnectDelay)
+			continue
 		}
 
 		time.Sleep(c.reconnectDelay)
@@ -203,9 +207,7 @@ func (c *Client) disconnect() {
 		return
 	}
 	c.logger.Info("Closing connection manager")
-	if err := c.conn.Close(); err != nil {
-		c.logger.WithError(err).Error("Failed to close connection")
-	}
+	c.conn.Close()
 
 	c.conn = nil
 }

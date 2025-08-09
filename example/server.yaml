@@ -1,9 +1,8 @@
 # Server configuration for gunnel
 domain: test.example.com
-tls:
-  enable: true
+# Optional shared token used to authorize clients.
+# On the client, export GUNNEL_TOKEN with the same value.
+token: YOUR_SHARED_TOKEN
+cert:
+  enabled: true
   email: admin@example.com
-  production: false  # Set to true for production Let's Encrypt certificates
-  # The following fields are only needed if you're configuring a custom backend
-  # host: localhost
-  # port: 3000

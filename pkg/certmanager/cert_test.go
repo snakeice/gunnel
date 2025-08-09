@@ -23,8 +23,8 @@ func TestGetTLSConfigWithLetsEncrypt(t *testing.T) {
 		t.Errorf("GetTLSConfigWithLetsEncrypt() got = nil, want non-nil")
 		return
 	}
-	// Check if the config has the expected fields
-	if got.MinVersion != 0 {
-		t.Errorf("GetTLSConfigWithLetsEncrypt() got.MinVersion = %v, want 0", got.MinVersion)
+	// Check if the config has NextProtos entries (ALPN)
+	if len(got.NextProtos) == 0 {
+		t.Errorf("GetTLSConfigWithLetsEncrypt() NextProtos should not be empty")
 	}
 }

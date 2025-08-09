@@ -80,12 +80,24 @@ func (rw *ResponseWriterWrapper) Flush() {
 		rw.headers.Set("Content-Length", strconv.Itoa(rw.buff.Len()))
 	}
 
-	rw.conn.Write(
+	if _, err := rw.conn.Write(
 		fmt.Appendf(nil, "HTTP/1.1 %d %s\r\n", rw.statusCode, http.StatusText(rw.statusCode)),
-	)
-	for k, v := range rw.headers {
-		rw.conn.Write(fmt.Appendf(nil, "%s: %s\r\n", k, strings.Join(v, ",")))
+	); err != nil {
+		logrus.WithError(err).Warn("failed to write status line")
+		return
 	}
-	rw.conn.Write([]byte("\r\n"))
-	rw.conn.Write(rw.buff.Bytes())
+	for k, v := range rw.headers {
+		if _, err := rw.conn.Write(fmt.Appendf(nil, "%s: %s\r\n", k, strings.Join(v, ","))); err != nil {
+			logrus.WithError(err).Warn("failed to write header line")
+			return
+		}
+	}
+	if _, err := rw.conn.Write([]byte("\r\n")); err != nil {
+		logrus.WithError(err).Warn("failed to write header terminator")
+		return
+	}
+	if _, err := rw.conn.Write(rw.buff.Bytes()); err != nil {
+		logrus.WithError(err).Warn("failed to write body")
+		return
+	}
 }

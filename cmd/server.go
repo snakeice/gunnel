@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/snakeice/gunnel/pkg/server"
@@ -27,9 +26,6 @@ Uses separate ports for client-server communication and user connections.`,
 					return fmt.Errorf("failed to load config: %w", err)
 				}
 			}
-
-			a, _ := json.MarshalIndent(config, "", "  ")
-			fmt.Printf("Config: %s\n", string(a))
 
 			srv := server.NewServer(config)
 

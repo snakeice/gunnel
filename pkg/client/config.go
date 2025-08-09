@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/snakeice/gunnel/pkg/protocol"
@@ -30,7 +31,11 @@ func LoadConfig(configPath string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			log.Printf("failed to close config file %s: %v", configPath, cerr)
+		}
+	}()
 
 	config := &Config{
 		ServerAddr: "localhost:8081",

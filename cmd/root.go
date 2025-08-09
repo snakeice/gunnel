@@ -37,7 +37,7 @@ func Execute() {
 	}
 
 	rootCmd.PersistentFlags().
-		StringVarP(&level, "log-level", "l", "trace", "Set the log level (trace, debug, info, warn, error, fatal, panic)")
+		StringVarP(&level, "log-level", "l", "debug", "Set the log level (trace, debug, info, warn, error, fatal, panic)")
 	if err := rootCmd.PersistentFlags().MarkHidden("log-level"); err != nil {
 		logrus.Error(err)
 		os.Exit(1)

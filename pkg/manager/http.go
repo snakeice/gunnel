@@ -2,18 +2,16 @@ package manager
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"time"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/protocol"
-	"github.com/snakeice/gunnel/pkg/tunnel"
+	"github.com/snakeice/gunnel/pkg/transport"
 )
 
 // HandleHTTPConnection handles an HTTP connection.
@@ -21,7 +19,16 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 	// Reconstruct the request
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
-	defer writer.Flush()
+	defer func() {
+		if err := writer.Flush(); err != nil {
+			logrus.WithError(err).Warn("Failed to flush writer")
+		}
+	}()
+	defer func() {
+		if cerr := conn.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
+			logrus.WithError(cerr).Warn("Failed to close connection")
+		}
+	}()
 
 	req, err := http.ReadRequest(reader)
 	if err != nil {
@@ -41,134 +48,15 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 		"req":       fmt.Sprintf("%s %s", req.Method, req.URL),
 	})
 
-	logger.Debug("Processing HTTP request")
+	logger.Infof("%s %s", req.Method, req.URL)
 
-	stream, err := r.Acquire(subdomain)
-	if err != nil {
+	if err := r.handleProxyFlow(conn, req, subdomain, logger); err != nil {
+		logger.WithError(err).Error("Proxy flow failed")
+		status := 500
 		if errors.Is(err, ErrNoConnection) {
-			logger.Error("No service found for subdomain")
-			SendHttpResponse(conn, 404, "No service found for subdomain %s", subdomain)
-			return
+			status = 404
 		}
-
-		logger.WithError(err).Error("Failed to acquire transport")
-
-		SendHttpResponse(conn, 503, "Service temporarily unavailable: %s", err)
-		return
-	}
-
-	logger = logger.WithFields(logrus.Fields{
-		"stream_id": stream.ID(),
-	})
-
-	defer r.Release(subdomain, stream)
-
-	// Send begin connection message
-	beginMsg := &protocol.BeginConnection{
-		Subdomain: subdomain,
-	}
-
-	logger.Debug("Sending begin connection message")
-
-	if err = stream.Send(beginMsg); err != nil {
-		logger.WithError(err).Error("Failed to send begin connection message")
-		SendHttpResponse(conn, 500, "Failed to send begin connection message: %s", err)
-		return
-	}
-
-	// Send request data directly through transport
-	reqBytes, err := httputil.DumpRequest(req, true)
-	if err != nil {
-		logger.WithError(err).Error("Failed to dump request")
-		SendHttpResponse(conn, 500, "Failed to dump request: %s", err)
-		return
-	}
-
-	// Create a buffer to store the response
-	var respBuf bytes.Buffer
-
-	// Start a goroutine to read the response from the client
-	respChan := make(chan error)
-	readyChan := make(chan struct{})
-
-	go func() {
-		// Read until we get an end connection message
-		for {
-			msg, err := stream.Receive()
-			if err != nil {
-				logger.WithError(err).Error("Failed to read message from client")
-				respChan <- fmt.Errorf("failed to read message: %w", err)
-				return
-			}
-
-			switch msg.Type { //nolint:exhaustive // this switch not exhaustive
-			case protocol.MessageEndStream:
-				logger.WithError(err).Debug("Received end connection message")
-				// We're done receiving data
-				respChan <- nil
-				return
-
-			case protocol.MessageConnectionReady:
-				readyMsg := protocol.ConnectionReady{}
-				protocol.Unmarshal(&readyMsg, msg)
-				logger.Debug("Received connection ready from proxing message")
-				readyChan <- struct{}{}
-
-				// If it's not an end message, it's data
-				if _, err = respBuf.Write(msg.Payload); err != nil {
-					logger.WithError(err).Error("Failed to write to buffer")
-					respChan <- fmt.Errorf("failed to write to buffer: %w", err)
-					return
-				}
-
-				tun := tunnel.NewTunnelWithLocal(conn, stream)
-
-				if err = tun.Proxy(); err != nil {
-					logger.WithError(err).Error("Failed to proxy data")
-					respChan <- fmt.Errorf("failed to proxy data: %w", err)
-					return
-				}
-
-				if err = tun.Close(); err != nil {
-					logger.WithError(err).Error("Failed to close tunnel")
-					respChan <- fmt.Errorf("failed to close tunnel: %w", err)
-					return
-				}
-
-				logger.WithFields(logrus.Fields{
-					"data_size":  len(msg.Payload),
-					"total_size": respBuf.Len(),
-				}).Debug("Received data from client")
-				respChan <- nil
-				return
-			}
-		}
-	}()
-
-	select {
-	case <-readyChan:
-		logger.Debug("Client connection ready for proxying")
-	case <-time.After(streamAcceptTimeout):
-		logger.Error("Client connection not ready in time")
-	case err := <-respChan:
-		logger.WithError(err).Error("Failed to receive response from client")
-		SendHttpResponse(conn, 500, "Failed to receive response: %s", err)
-		return
-	}
-
-	// Send the request data
-	logger.WithField("req_size", len(reqBytes)).Debug("Sending request data to client")
-
-	if _, err := stream.Write(reqBytes); err != nil {
-		logger.WithError(err).Error("Failed to send request data to client")
-		SendHttpResponse(conn, 500, "Failed to send request data: %s", err)
-		return
-	}
-
-	// Wait for the response to be fully received
-	if err := <-respChan; err != nil {
-		logger.WithError(err).Error("Failed to receive response from client")
-		SendHttpResponse(conn, 500, "Failed to receive response: %s", err)
+		SendHttpResponse(conn, status, "%s", err)
 		return
 	}
 	// logger.WithField("resp_size", respBuf.Len()).Debug("Received response from client")
@@ -205,4 +93,126 @@ func (m *Manager) handleGunnel(conn net.Conn, req *http.Request) {
 	}
 
 	resWriter.Flush()
+}
+
+// handleProxyFlow coordinates acquiring a stream, beginning the connection,
+// waiting for readiness, and performing bidirectional proxying.
+func (r *Manager) handleProxyFlow(
+	conn net.Conn,
+	req *http.Request,
+	subdomain string,
+	baseLogger *logrus.Entry,
+) error {
+	logger := baseLogger
+
+	stream, err := r.Acquire(subdomain)
+	if err != nil {
+		if errors.Is(err, ErrNoConnection) {
+			logger.Error("No service found for subdomain")
+			return fmt.Errorf("no service found for subdomain %s", subdomain)
+		}
+		logger.WithError(err).Error("Failed to acquire transport")
+		return fmt.Errorf("service temporarily unavailable: %w", err)
+	}
+	defer r.Release(subdomain, stream)
+
+	logger = logger.WithFields(logrus.Fields{
+		"stream_id": stream.ID(),
+	})
+
+	// Send begin connection message
+	beginMsg := &protocol.BeginConnection{Subdomain: subdomain}
+	logger.Debug("Sending begin connection message")
+	if err = stream.Send(beginMsg); err != nil {
+		logger.WithError(err).Error("Failed to send begin connection message")
+		return fmt.Errorf("failed to send begin connection message: %w", err)
+	}
+
+	readyChan := make(chan struct{})
+	respChan := make(chan error)
+
+	// Reader goroutine: wait only for ConnectionReady, then return.
+	go r.readClientMessagesAndProxy(conn, stream, readyChan, respChan, logger)
+
+	// Wait for readiness or error/timeout
+	select {
+	case <-readyChan:
+		logger.Debug("Client connection ready for proxying")
+	case <-time.After(streamAcceptTimeout):
+		logger.Error("Client connection not ready in time")
+		return errors.New("client connection not ready in time")
+	case err := <-respChan:
+		if err != nil {
+			logger.WithError(err).Error("Failed before proxy start")
+			return fmt.Errorf("failed before proxy start: %w", err)
+		}
+	}
+
+	// Write the HTTP request to the stream, half-close the write side,
+	// then read the HTTP response back and write it to the client connection.
+	if err := req.Write(stream); err != nil {
+		logger.WithError(err).Error("Failed to write request to stream")
+		return fmt.Errorf("failed to write request to stream: %w", err)
+	}
+
+	if err := stream.CloseWrite(); err != nil {
+		logger.WithError(err).Warn("Failed to half-close stream write side")
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(stream), req)
+	if err != nil {
+		logger.WithError(err).Error("Failed to read response from stream")
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := resp.Write(conn); err != nil {
+		logger.WithError(err).Error("Failed to write response to client")
+		return fmt.Errorf("failed to write response to client: %w", err)
+	}
+
+	return nil
+}
+
+// readClientMessagesAndProxy waits for ConnectionReady, then signals readiness.
+// Any error before readiness is sent on respChan.
+func (r *Manager) readClientMessagesAndProxy(
+	conn net.Conn,
+	stream transport.Stream,
+	readyChan chan<- struct{},
+	respChan chan<- error,
+	logger *logrus.Entry,
+) {
+	for {
+		msg, err := stream.Receive()
+		if err != nil {
+			logger.WithError(err).Error("Failed to read message from client")
+			respChan <- fmt.Errorf("failed to read message: %w", err)
+			return
+		}
+
+		switch msg.Type { //nolint:exhaustive // not all messages are handled here; only those relevant to proxy lifecycle
+		case protocol.MessageEndStream:
+			logger.Debug("Received end connection message before ready")
+			respChan <- fmt.Errorf("connection ended before ready")
+			return
+
+		case protocol.MessageConnectionReady:
+			readyMsg := protocol.ConnectionReady{}
+			protocol.Unmarshal(&readyMsg, msg)
+			logger.Debug("Received connection ready from proxying message")
+			readyChan <- struct{}{}
+			return
+
+		case protocol.MessageError:
+			errMsg := protocol.ErrorMessage{}
+			protocol.Unmarshal(&errMsg, msg)
+			logger.WithField("error", errMsg.Message).Error("Server sent error")
+			respChan <- fmt.Errorf("server error: %s", errMsg.Message)
+			return
+
+		default:
+			logger.WithField("type", msg.Type.String()).Warn("Unexpected message type before ready")
+		}
+	}
 }

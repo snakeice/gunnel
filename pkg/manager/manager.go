@@ -31,6 +31,10 @@ type Manager struct {
 	clientsMux sync.RWMutex
 
 	gunnelSubdomainHandler http.HandlerFunc
+
+	// tokenValidator, when set, is used to authorize client registrations.
+	// If nil, all registrations are allowed.
+	tokenValidator func(string) bool
 }
 
 // New creates a new router.
@@ -43,6 +47,21 @@ func New() *Manager {
 
 func (m *Manager) SetGunnelSubdomainHandler(handler http.HandlerFunc) {
 	m.gunnelSubdomainHandler = handler
+}
+
+// SetTokenValidator defines a callback used to authorize client registration tokens.
+// If not set, all registrations are allowed.
+func (m *Manager) SetTokenValidator(validator func(string) bool) {
+	m.tokenValidator = validator
+}
+
+// IsAuthorized evaluates the provided token using the installed validator.
+// When no validator is configured, it returns true (allow).
+func (m *Manager) IsAuthorized(token string) bool {
+	if m.tokenValidator == nil {
+		return true
+	}
+	return m.tokenValidator(token)
 }
 
 // ForEachClient iterates over all clients and calls the provided function for each one.
@@ -66,6 +85,7 @@ func (m *Manager) Acquire(subdomain string) (transport.Stream, error) {
 			logrus.WithFields(logrus.Fields{
 				"subdomain": subdomain,
 			}).Errorf("Failed to acquire transport stream: %s", err)
+			return nil, ErrNoConnection
 		}
 	}
 
@@ -114,16 +134,25 @@ func (m *Manager) addClient(subdomain string, client *connection.Connection) err
 
 	if !exists || needReplace {
 		m.clientsMux.Lock()
+		defer m.clientsMux.Unlock()
+
 		m.clients = append(m.clients, clientInfo{
 			subdomains: []string{subdomain},
 			client:     client,
 		})
-		m.clientsMux.Unlock()
 
 		return nil
 	}
 
-	oldClient.subdomains = append(oldClient.subdomains, subdomain)
+	m.clientsMux.Lock()
+	defer m.clientsMux.Unlock()
+
+	for i := range m.clients {
+		if m.clients[i].client == oldClient.client {
+			m.clients[i].subdomains = append(m.clients[i].subdomains, subdomain)
+			break
+		}
+	}
 
 	return nil
 }

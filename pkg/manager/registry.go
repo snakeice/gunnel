@@ -78,13 +78,27 @@ func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Mess
 		subdomain = "default"
 	}
 
+	logrus.WithFields(logrus.Fields{
+		"subdomain": subdomain,
+		"host":      regMsg.Host,
+		"port":      regMsg.Port,
+		"protocol":  regMsg.Protocol,
+	}).Info("Client requested registration")
+
 	reason := "success"
 
 	canAccept := true
 
-	if err := m.addClient(subdomain, client); err != nil {
-		reason = "failed to add client: " + err.Error()
+	if !m.IsAuthorized(regMsg.Token) {
+		reason = "unauthorized"
 		canAccept = false
+	}
+
+	if canAccept {
+		if err := m.addClient(subdomain, client); err != nil {
+			reason = "failed to add client: " + err.Error()
+			canAccept = false
+		}
 	}
 
 	regRespMsg := protocol.ConnectionRegisterResp{
@@ -93,6 +107,12 @@ func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Mess
 		Message:   reason,
 	}
 	client.Send(&regRespMsg)
+
+	logrus.WithFields(logrus.Fields{
+		"subdomain": subdomain,
+		"accepted":  canAccept,
+		"reason":    reason,
+	}).Info("Client registration result")
 
 	return nil
 }

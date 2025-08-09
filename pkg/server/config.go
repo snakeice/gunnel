@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 	"os"
 
 	yaml "github.com/goccy/go-yaml"
@@ -12,7 +13,10 @@ import (
 // Each backend configuration includes the host, port, subdomain, and protocol.
 // The server address is the address of the gunnel server.
 type Config struct {
-	Domain     string      `yaml:"domain"`
+	// Domain base for HTTP routing (e.g., example.com)
+	Domain string `yaml:"domain"`
+	// Optional shared token required from clients for registration/auth
+	Token      string      `yaml:"token"`
 	ServerPort int         `yaml:"server_port"`
 	QuicPort   int         `yaml:"quic_port"`
 	Cert       *CertConfig `yaml:"cert"`
@@ -26,6 +30,7 @@ type CertConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Domain:     "",
+		Token:      "",
 		ServerPort: 8080,
 		QuicPort:   8081,
 		Cert: &CertConfig{
@@ -40,7 +45,11 @@ func (c *Config) LoadConfig(configPath string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			log.Printf("failed to close config file %s: %v", configPath, cerr)
+		}
+	}()
 
 	err = yaml.NewDecoder(file).Decode(c)
 	if err != nil {

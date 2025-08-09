@@ -6,12 +6,10 @@
     <title>Gunnel Status 🚇👷🏼</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        // Check system preference for dark mode
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
             document.documentElement.classList.add('dark');
         }
 
-        // Listen for system theme changes
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
             if (e.matches) {
                 document.documentElement.classList.add('dark');
@@ -94,12 +92,10 @@
             updateStreams();
         }, 1000);
 
-        // Update clients every 10 seconds
         setInterval(() => {
             updateClients();
         }, 5000);
 
-        // Initial update
         updateStats();
         updateClients();
         updateStreams();

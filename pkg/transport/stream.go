@@ -27,6 +27,7 @@ type Stream interface {
 
 	Read(p []byte) (n int, err error)
 	Write(p []byte) (n int, err error)
+	CloseWrite() error
 	Context() context.Context
 }
 
@@ -65,17 +66,14 @@ func newStreamHandler(stream quic.Stream) *streamClient {
 func (t *streamClient) watchClose() {
 	go func() {
 		<-t.stream.Context().Done()
+
 		t.mu.Lock()
 		defer t.mu.Unlock()
 
 		if t.stream != nil {
 			if err := t.stream.Close(); err != nil {
-				logrus.WithFields(logrus.Fields{
-					"error":     err,
-					"stream_id": t.ID(),
-				}).Error("Failed to close stream")
+				logrus.WithError(err).Warn("Failed to close stream on context done")
 			}
-			t.stream = nil
 		}
 	}()
 }
@@ -135,7 +133,8 @@ func (t *streamClient) Receive() (*protocol.Message, error) {
 }
 
 func (t *streamClient) Close() error {
-	t.metricsInfo.IsActive = false
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	if t.stream == nil {
 		logrus.WithFields(logrus.Fields{
@@ -144,14 +143,28 @@ func (t *streamClient) Close() error {
 		return nil
 	}
 
+	t.metricsInfo.IsActive = false
+
 	if err := t.stream.Close(); err != nil {
 		return fmt.Errorf("failed to close streamClient: %w", err)
 	}
+
+	t.stream = nil
 
 	return nil
 }
 
 func (t *streamClient) Read(p []byte) (int, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.stream == nil {
+		logrus.WithFields(logrus.Fields{
+			"stream_id": t.ID(),
+		}).Debug("Stream is nil, nothing to read")
+		return 0, errors.New("stream is nil")
+	}
+
 	if err := t.stream.SetReadDeadline(time.Now().Add(deadlineDefault)); err != nil {
 		logrus.WithFields(logrus.Fields{
 			"error":     err,
@@ -187,6 +200,9 @@ func (t *streamClient) Read(p []byte) (int, error) {
 }
 
 func (t *streamClient) Write(p []byte) (int, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
 	if t.stream == nil {
 		logrus.WithFields(logrus.Fields{
 			"stream_id": t.ID(),
@@ -194,7 +210,13 @@ func (t *streamClient) Write(p []byte) (int, error) {
 		return 0, errors.New("stream is nil")
 	}
 
-	t.stream.SetWriteDeadline(time.Now().Add(deadlineDefault))
+	if err := t.stream.SetWriteDeadline(time.Now().Add(deadlineDefault)); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"error":     err,
+			"stream_id": t.ID(),
+		}).Error("Failed to set write deadline")
+		return 0, err
+	}
 
 	n, err := t.stream.Write(p)
 
@@ -227,6 +249,23 @@ func (t *streamClient) SetSubdomain(subdomain string) {
 	defer t.mu.Unlock()
 
 	t.metricsInfo.SetSubdomain(subdomain)
+}
+
+func (t *streamClient) CloseWrite() error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.stream == nil {
+		logrus.WithFields(logrus.Fields{
+			"stream_id": t.ID(),
+		}).Debug("Stream is nil, nothing to close write")
+		return nil
+	}
+
+	if err := t.stream.Close(); err != nil {
+		return fmt.Errorf("failed to close write side: %w", err)
+	}
+	return nil
 }
 
 func (t *streamClient) Context() context.Context {

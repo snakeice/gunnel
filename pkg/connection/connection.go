@@ -90,7 +90,7 @@ func (c *Connection) watchReceive(ctx context.Context) {
 			if err != nil {
 				c.logger.WithError(err).Errorf("Failed to read message from %s", c.transp.Addr())
 				c.connected = false
-				c.lastActive = time.Now()
+				c.markActive()
 				c.transp.Close()
 				return
 			}
@@ -184,8 +184,10 @@ func (c *Connection) Release(stream transport.Stream) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lastActive = time.Now()
-	c.transp.Release(stream)
-	c.logger.Infof("Released stream %s", stream.ID())
+	if err := c.transp.Release(stream); err != nil {
+		c.logger.WithError(err).Errorf("Failed to release stream %s", stream.ID())
+	}
+	c.logger.Debugf("Released stream %s", stream.ID())
 }
 
 func (c *Connection) disconnect() {
@@ -195,7 +197,7 @@ func (c *Connection) disconnect() {
 	c.connected = false
 	c.lastActive = time.Now()
 	c.transp.Close()
-	logrus.Infof("Client %s disconnected", c.transp.Addr())
+	logrus.Debugf("Client %s disconnected", c.transp.Addr())
 }
 
 // GetConnCount returns the client's connections.
@@ -237,4 +239,11 @@ func (c *Connection) SetHeartbeatConfig(interval, timeout time.Duration) {
 	if timeout > 0 {
 		c.heartbeatTimeout = timeout
 	}
+}
+
+func (c *Connection) markActive() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.lastActive = time.Now()
 }
