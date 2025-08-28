@@ -3,6 +3,17 @@
 
 version: 2
 
+# Project configuration
+project_name: gunnel
+
+# Git configuration
+git:
+  # What to do with the git tag after the release.
+  # Valid options are:
+  # - skip: Don't touch the tag at all (default)
+  # - remove: Remove the tag after the release
+  tag_sort: -version:refname
+
 before:
   hooks:
     - go mod tidy
@@ -145,10 +156,10 @@ nfpms:
         dst: /usr/lib/systemd/system/gunnel-client.service
 
 release:
-  github:
-    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
-    name: "{{ .ProjectName }}"
+  # GitHub release configuration
+  # The repository information will be auto-detected from git remote
   prerelease: auto
+  draft: false
   name_template: "{{.ProjectName}} v{{.Version}}"
   footer: |
     ## Docker Images
