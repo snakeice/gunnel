@@ -139,7 +139,7 @@ brews:
       owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    folder: Formula
+    directory: Formula
     homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY }}
     description: "A fast and secure tunnel for exposing local services"
     license: "MIT"
