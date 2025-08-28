@@ -319,11 +319,11 @@ Notes:
 ```yaml
 server_addr: localhost:8081
 backend:
-  test: 
+  test:
     port: 3000
     subdomain: test
     protocol: http
-  svc: 
+  svc:
     host:
     port: 3000
     subdomain: svc

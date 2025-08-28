@@ -27,7 +27,7 @@ type BackendConfig struct {
 }
 
 func LoadConfig(configPath string) (*Config, error) {
-	file, err := os.Open(configPath) //nolint:gosec // It's ok to use os.Open here
+	file, err := os.Open(configPath)
 	if err != nil {
 		return nil, err
 	}

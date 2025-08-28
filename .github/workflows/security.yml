@@ -83,27 +83,27 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const fs = require('fs');
-            
+
             // Check if critical vulnerabilities exist
             let hasCritical = false;
             try {
               const trivyResults = JSON.parse(fs.readFileSync('trivy-results.sarif', 'utf8'));
-              hasCritical = trivyResults.runs?.[0]?.results?.some(r => 
+              hasCritical = trivyResults.runs?.[0]?.results?.some(r =>
                 r.level === 'error' || r.properties?.['security-severity'] >= 9.0
               );
             } catch (e) {
               console.log('Could not parse SARIF results:', e);
             }
-            
+
             if (hasCritical) {
               const issue = await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title: '🚨 Critical security vulnerabilities detected',
                 body: `Critical security vulnerabilities were detected in the weekly security scan.
-                
+
                 Please review the [Security tab](https://github.com/${context.repo.owner}/${context.repo.repo}/security/code-scanning) for details.
-                
+
                 Workflow run: [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
                 labels: ['security', 'critical']
               });

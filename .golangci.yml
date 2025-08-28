@@ -13,7 +13,7 @@ run:
   # - `wd` (NOT recommended): the paths will be relative to the place where golangci-lint is run.
   # Default: wd
   relative-path-mode: gomod
-  
+
 # This file contains only configs which differ from defaults.
 # All possible options can be found here https://github.com/golangci/golangci-lint/blob/HEAD/.golangci.reference.yml
 
@@ -98,7 +98,7 @@ linters:
     - usetesting # reports uses of functions with replacement inside the testing package
     - wastedassign # finds wasted assignment statements
     - whitespace # detects leading and trailing whitespace
-  
+
     ## you may want to enable
     #- decorder # checks declaration order and count of types, constants, variables and functions
     #- exhaustruct # [highly recommend to enable] checks if all structure fields are initialized

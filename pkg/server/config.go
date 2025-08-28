@@ -41,7 +41,7 @@ func DefaultConfig() *Config {
 }
 
 func (c *Config) LoadConfig(configPath string) error {
-	file, err := os.Open(configPath) //nolint:gosec // It's ok to use os.Open here
+	file, err := os.Open(configPath)
 	if err != nil {
 		return err
 	}

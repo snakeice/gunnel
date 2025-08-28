@@ -3,7 +3,7 @@
 tmux kill-session -t debug-watch 2>/dev/null
 tmux new-session -d -s debug-watch
 
-# split the window into 4 panes like 
+# split the window into 4 panes like
 # ┌────────────┬────────────┐
 # │            │            │
 # │    CURL    │    fake    │
