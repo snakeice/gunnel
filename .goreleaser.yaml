@@ -53,9 +53,6 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    format_overrides:
-      - goos: windows
-        format: zip
     files:
       - LICENSE
       - README.md
@@ -134,20 +131,19 @@ docker_manifests:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-arm64"
 
-brews:
-  - repository:
-      owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY }}
-    description: "A fast and secure tunnel for exposing local services"
-    license: "MIT"
-    test: |
-      system "#{bin}/gunnel", "--version"
-    dependencies:
-      - name: go
-        type: optional
+# Homebrew support is commented out for now
+# To enable homebrew, uncomment and update the following section
+# brews:
+#   - repository:
+#       owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     directory: Formula
+#     homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY }}
+#     description: "A fast and secure tunnel for exposing local services"
+#     license: "MIT"
+#     test: |
+#       system "#{bin}/gunnel", "--version"
 
 nfpms:
   - id: packages
