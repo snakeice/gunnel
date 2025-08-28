@@ -97,7 +97,9 @@ dockers:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-amd64"
     use: buildx
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
+    extra_files:
+      - example/
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -111,7 +113,9 @@ dockers:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-arm64"
     use: buildx
     goarch: arm64
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
+    extra_files:
+      - example/
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -130,20 +134,6 @@ docker_manifests:
     image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-arm64"
-
-# Homebrew support is commented out for now
-# To enable homebrew, uncomment and update the following section
-# brews:
-#   - repository:
-#       owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
-#       name: homebrew-tap
-#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-#     directory: Formula
-#     homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY }}
-#     description: "A fast and secure tunnel for exposing local services"
-#     license: "MIT"
-#     test: |
-#       system "#{bin}/gunnel", "--version"
 
 nfpms:
   - id: packages

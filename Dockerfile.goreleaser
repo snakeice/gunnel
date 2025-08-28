@@ -1,0 +1,38 @@
+# Dockerfile for GoReleaser builds
+# This expects the binary to be built by GoReleaser and copied in
+FROM alpine:3.22
+
+# Install ca-certificates for TLS
+RUN apk --no-cache add ca-certificates
+
+# Create non-root user
+RUN adduser -D -u 1001 -s /sbin/nologin gunnel
+
+# Create config directory
+RUN mkdir -p /etc/gunnel && \
+    chown -R gunnel:gunnel /etc/gunnel
+
+# Copy the pre-built binary from GoReleaser
+COPY gunnel /usr/local/bin/gunnel
+
+# Copy example configs
+COPY example/server.yaml /etc/gunnel/server.yaml.example
+COPY example/client.yaml /etc/gunnel/client.yaml.example
+
+# Set ownership
+RUN chown gunnel:gunnel /usr/local/bin/gunnel && \
+    chmod 755 /usr/local/bin/gunnel && \
+    chown -R gunnel:gunnel /etc/gunnel
+
+USER gunnel
+
+# Expose ports
+# 8081 - QUIC/Server port
+# 80 - HTTP
+# 443 - HTTPS
+EXPOSE 8081 80 443
+
+VOLUME ["/etc/gunnel"]
+
+ENTRYPOINT ["gunnel"]
+CMD ["--help"]
