@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
 env:
   GO_VERSION: '1.24'
 
@@ -95,13 +100,27 @@ jobs:
           scan-ref: '.'
           format: 'sarif'
           output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '0'  # Don't fail the build on vulnerabilities
 
+      # Upload results to GitHub Security tab
+      # Note: This requires security-events: write permission
+      # Will fail on PRs from forks (continue-on-error allows the workflow to proceed)
       - name: Upload Trivy results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
         with:
           sarif_file: 'trivy-results.sarif'
 
       - name: Run gosec security scanner
         uses: securego/gosec@master
         with:
-          args: './...'
+          args: '-fmt sarif -out gosec-results.sarif ./...'
+
+      - name: Upload gosec results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: 'gosec-results.sarif'
