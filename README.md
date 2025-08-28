@@ -2,9 +2,12 @@
 
 A modern, lightweight, and secure tunneling solution written in Go.
 
+[![Test](https://github.com/snakeice/gunnel/actions/workflows/test.yml/badge.svg)](https://github.com/snakeice/gunnel/actions/workflows/test.yml)
+[![Release](https://github.com/snakeice/gunnel/actions/workflows/release.yml/badge.svg)](https://github.com/snakeice/gunnel/actions/workflows/release.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/snakeice/gunnel)](https://goreportcard.com/report/github.com/snakeice/gunnel)
 [![GoDoc](https://godoc.org/github.com/snakeice/gunnel?status.svg)](https://godoc.org/github.com/snakeice/gunnel)
 [![License](https://img.shields.io/github/license/snakeice/gunnel)](LICENSE)
+[![GitHub Container Registry](https://img.shields.io/badge/ghcr.io-snakeice%2Fgunnel-blue)](https://github.com/snakeice/gunnel/pkgs/container/gunnel)
 
 ## Overview
 
@@ -60,6 +63,39 @@ go install github.com/snakeice/gunnel@latest
 ## Usage
 
 Gunnel can be run in either server or client mode and is configured using YAML configuration files.
+
+### Docker
+
+Docker images are available on GitHub Container Registry (ghcr.io):
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/snakeice/gunnel:latest
+
+# Or use the Alpine variant (smaller size)
+docker pull ghcr.io/snakeice/gunnel:alpine
+
+# Run server with Docker
+docker run -d \
+  --name gunnel-server \
+  -p 8081:8081 -p 80:80 -p 443:443 \
+  -v $(pwd)/example/server.yaml:/etc/gunnel/server.yaml \
+  ghcr.io/snakeice/gunnel:latest \
+  server -c /etc/gunnel/server.yaml
+
+# Run client with Docker
+docker run -d \
+  --name gunnel-client \
+  -v $(pwd)/example/client.yaml:/etc/gunnel/client.yaml \
+  ghcr.io/snakeice/gunnel:latest \
+  client -c /etc/gunnel/client.yaml
+```
+
+For complex deployments, use the provided `docker-compose.example.yml`:
+
+```bash
+docker-compose -f docker-compose.example.yml up -d
+```
 
 ### Server Mode
 

@@ -1,13 +1,85 @@
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-*.test
-*.out
 
-# Go workspace file
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+coverage.xml
+
+# Dependency directories
+vendor/
+
+# Go workspace files
 go.work
+go.work.sum
+
+# Build directories
+dist/
+build/
+bin/
 tmp/
+
+# IDE specific files
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+*.code-workspace
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Gunnel specific
 gunnel
-__debug_bin*
+gunnel-*
+!gunnel-*.service
+
+# Config files (except examples)
+*.yaml
+!example/*.yaml
+*.yml
+!.github/**/*.yml
+!.gitlab-ci.yml
+!.golangci.yml
+!.goreleaser.yaml
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# Log files
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# GoReleaser
+dist/
+
+# Air live reload
+.air.toml
+
+# Debug files
+debug
+debug.test
+*.pprof
+
+# Temporary files
+*.tmp
+*.bak
+*.backup

@@ -1,0 +1,39 @@
+[Unit]
+Description=Gunnel Tunnel Client
+Documentation=https://github.com/snakeice/gunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gunnel
+Group=gunnel
+ExecStart=/usr/local/bin/gunnel client -c /etc/gunnel/client.yaml
+Restart=always
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/etc/gunnel
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Resource limits
+LimitNOFILE=65536
+TasksMax=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gunnel-client
+
+[Install]
+WantedBy=multi-user.target

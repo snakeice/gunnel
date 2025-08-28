@@ -1,0 +1,252 @@
+# GoReleaser configuration
+# Documentation at https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: gunnel
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+      - freebsd
+    goarch:
+      - amd64
+      - arm
+      - arm64
+      - 386
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+      - goos: darwin
+        goarch: 386
+      - goos: darwin
+        goarch: arm
+      - goos: freebsd
+        goarch: arm
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+    binary: gunnel
+
+archives:
+  - id: gunnel
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+      - example/*.yaml
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^style:'
+      - '^refactor:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: 'Features'
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Security'
+      regexp: '^.*?sec(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Others
+      order: 999
+
+dockers:
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-arm64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-arm64"
+    use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-amd64"
+    use: buildx
+    dockerfile: Dockerfile.alpine
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}-alpine"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-arm64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-arm64"
+    use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile.alpine
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}-alpine"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-arm64"
+
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-arm64"
+
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-arm64"
+
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-arm64"
+
+brews:
+  - repository:
+      owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    folder: Formula
+    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY }}
+    description: "A fast and secure tunnel for exposing local services"
+    license: "MIT"
+    test: |
+      system "#{bin}/gunnel", "--version"
+    dependencies:
+      - name: go
+        type: optional
+
+nfpms:
+  - id: packages
+    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY }}
+    description: "A fast and secure tunnel for exposing local services"
+    maintainer: "Gunnel Developers <dev@gunnel.io>"
+    license: MIT
+    vendor: Gunnel
+    formats:
+      - apk
+      - deb
+      - rpm
+    recommends:
+      - systemd
+    contents:
+      - src: example/server.yaml
+        dst: /etc/gunnel/server.yaml
+        type: config
+      - src: example/client.yaml
+        dst: /etc/gunnel/client.yaml
+        type: config
+      - src: init/gunnel.service
+        dst: /usr/lib/systemd/system/gunnel.service
+      - src: init/gunnel-client.service
+        dst: /usr/lib/systemd/system/gunnel-client.service
+
+release:
+  github:
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: "{{ .ProjectName }}"
+  prerelease: auto
+  name_template: "{{.ProjectName}} v{{.Version}}"
+  footer: |
+    ## Docker Images
+
+    ```bash
+    # Server
+    docker run -p 8081:8081 -p 80:80 -p 443:443 \
+      -v ./server.yaml:/config/server.yaml \
+      ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }} \
+      server -c /config/server.yaml
+
+    # Client
+    docker run \
+      -v ./client.yaml:/config/client.yaml \
+      ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }} \
+      client -c /config/client.yaml
+    ```
+
+    ## Installation
+
+    ### Linux/macOS/BSD
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/{{ .Env.GITHUB_REPOSITORY }}/main/install.sh | sh
+    ```
+
+    ### Homebrew
+    ```bash
+    brew install {{ .Env.GITHUB_REPOSITORY_OWNER }}/tap/gunnel
+    ```
+
+    ### Go
+    ```bash
+    go install github.com/{{ .Env.GITHUB_REPOSITORY }}@latest
+    ```
