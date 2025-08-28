@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 )
 
 var (
@@ -258,8 +259,10 @@ type lenSupported interface {
 func lenUint32[T lenSupported](b T) uint32 {
 	l := len(b)
 
-	if l > int(^uint32(0)) {
+	// Check if length exceeds uint32 max value
+	if uint64(l) > math.MaxUint32 {
 		panic("integer overflow: value exceeds uint32 range")
 	}
+	//nolint:gosec // G115: We've already validated the value is within uint32 range
 	return uint32(l)
 }
