@@ -1,4 +1,4 @@
-package integration
+package integration_test
 
 import (
 	"bufio"
@@ -30,15 +30,16 @@ func TestQUICProxyRoundTripHTTP(t *testing.T) {
 	defer cancel()
 
 	// 1) Start a local backend HTTP server (echo)
-	backendAddr, shutdownBackend := startHTTPBackend(t, ctx, func(w http.ResponseWriter, r *http.Request) {
-		// Simple echo handler with deterministic body
-		_ = r.Body.Close()
-		body := "hello-through-gunnel"
-		w.Header().Set("Content-Type", "text/plain")
-		w.Header().Set("Content-Length", "20")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, body)
-	})
+	backendAddr, shutdownBackend := startHTTPBackend(t, ctx,
+		func(w http.ResponseWriter, r *http.Request) {
+			// Simple echo handler with deterministic body
+			_ = r.Body.Close()
+			body := "hello-through-gunnel"
+			w.Header().Set("Content-Type", "text/plain")
+			w.Header().Set("Content-Length", "20")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, body)
+		})
 	defer shutdownBackend()
 
 	// 2) Start QUIC server and Manager
@@ -98,7 +99,7 @@ func TestQUICProxyRoundTripHTTP(t *testing.T) {
 	}()
 
 	// 5) Send HTTP request through the "user" side of the pipe
-	req, err := http.NewRequest("GET", "http://test.localhost/", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://test.localhost/", nil)
 	if err != nil {
 		t.Fatalf("http.NewRequest error: %v", err)
 	}
@@ -136,7 +137,11 @@ func TestQUICProxyRoundTripHTTP(t *testing.T) {
 	}
 }
 
-func startHTTPBackend(t *testing.T, ctx context.Context, handler http.HandlerFunc) (addr string, shutdown func()) {
+func startHTTPBackend(
+	t *testing.T,
+	ctx context.Context,
+	handler http.HandlerFunc,
+) (string, func()) {
 	t.Helper()
 
 	srv := &http.Server{
@@ -174,7 +179,12 @@ func startQUICServer(t *testing.T) (*gunnelquic.Server, string) {
 	return qsrv, qsrv.Addr()
 }
 
-func acceptQUICLoop(ctx context.Context, t *testing.T, qsrv *gunnelquic.Server, m *manager.Manager) {
+func acceptQUICLoop(
+	ctx context.Context,
+	t *testing.T,
+	qsrv *gunnelquic.Server,
+	m *manager.Manager,
+) {
 	t.Helper()
 
 	for {

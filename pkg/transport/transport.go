@@ -13,7 +13,7 @@ import (
 	gunnelquic "github.com/snakeice/gunnel/pkg/quic"
 )
 
-type StreamHandler func(stream quic.Stream) error
+type StreamHandler func(stream *quic.Stream) error
 
 type Transport interface {
 	Addr() string
@@ -73,7 +73,7 @@ func newWrapper(client *gunnelquic.Client, isServer bool) (*connectionTransport,
 	return transp, nil
 }
 
-func NewFromServer(ctx context.Context, client quic.Connection) (Transport, error) {
+func NewFromServer(ctx context.Context, client *quic.Conn) (Transport, error) {
 	conn := gunnelquic.NewClientWrapper(client)
 
 	transp, err := newWrapper(conn, true)

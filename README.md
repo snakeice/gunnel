@@ -66,14 +66,11 @@ Gunnel can be run in either server or client mode and is configured using YAML c
 
 ### Docker
 
-Docker images are available on GitHub Container Registry (ghcr.io):
+Docker images are available on GitHub Container Registry (ghcr.io). All images are built with Alpine Linux for minimal size (~20MB):
 
 ```bash
 # Pull the latest image
 docker pull ghcr.io/snakeice/gunnel:latest
-
-# Or use the Alpine variant (smaller size)
-docker pull ghcr.io/snakeice/gunnel:alpine
 
 # Run server with Docker
 docker run -d \

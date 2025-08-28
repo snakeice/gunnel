@@ -123,33 +123,6 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
 
-  - image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-amd64"
-    use: buildx
-    dockerfile: Dockerfile.alpine
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}-alpine"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
-
-  - image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-arm64"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-arm64"
-    use: buildx
-    goarch: arm64
-    dockerfile: Dockerfile.alpine
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}-alpine"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
-
 docker_manifests:
   - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}"
     image_templates:
@@ -160,16 +133,6 @@ docker_manifests:
     image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-amd64"
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest-arm64"
-
-  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine"
-    image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}-alpine-arm64"
-
-  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine"
-    image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:alpine-arm64"
 
 brews:
   - repository:

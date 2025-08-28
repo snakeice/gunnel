@@ -113,7 +113,7 @@ func (r *Manager) handleProxyFlow(
 	respChan := make(chan error)
 
 	// Reader goroutine: wait only for ConnectionReady, then return.
-	go r.readClientMessagesAndProxy(conn, stream, readyChan, respChan, logger)
+	go r.readClientMessagesAndProxy(stream, readyChan, respChan, logger)
 
 	// Wait for readiness or error/timeout
 	select {
@@ -145,7 +145,11 @@ func (r *Manager) handleProxyFlow(
 		logger.WithError(err).Error("Failed to read response from stream")
 		return fmt.Errorf("failed to read response: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	if err := resp.Write(conn); err != nil {
 		logger.WithError(err).Error("Failed to write response to client")
@@ -158,7 +162,6 @@ func (r *Manager) handleProxyFlow(
 // readClientMessagesAndProxy waits for ConnectionReady, then signals readiness.
 // Any error before readiness is sent on respChan.
 func (r *Manager) readClientMessagesAndProxy(
-	conn net.Conn,
 	stream transport.Stream,
 	readyChan chan<- struct{},
 	respChan chan<- error,
@@ -175,7 +178,7 @@ func (r *Manager) readClientMessagesAndProxy(
 		switch msg.Type { //nolint:exhaustive // not all messages are handled here; only those relevant to proxy lifecycle
 		case protocol.MessageEndStream:
 			logger.Debug("Received end connection message before ready")
-			respChan <- fmt.Errorf("connection ended before ready")
+			respChan <- errors.New("connection ended before ready")
 			return
 
 		case protocol.MessageConnectionReady:

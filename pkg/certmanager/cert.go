@@ -28,7 +28,9 @@ func GetTLSConfigWithLetsEncrypt(req *CertReqInfo) (*tls.Config, error) {
 
 	err := certmagic.ManageSync(context.TODO(), []string{domain})
 	if err != nil {
-		logrus.WithError(err).WithField("domain", domain).Error("Failed to manage certificate for domain")
+		logrus.WithError(err).
+			WithField("domain", domain).
+			Error("Failed to manage certificate for domain")
 		return nil, err
 	}
 

@@ -34,7 +34,7 @@ type Stream interface {
 // Transport represents a transport connection.
 type streamClient struct {
 	id          string
-	stream      quic.Stream
+	stream      *quic.Stream
 	metricsInfo *metrics.StreamInfo
 
 	mu sync.RWMutex
@@ -44,7 +44,7 @@ func GenerateID(strmID quic.StreamID) string {
 	return fmt.Sprintf("strm-%s-%d", strmID.InitiatedBy().String(), strmID.StreamNum())
 }
 
-func newStreamHandler(stream quic.Stream) *streamClient {
+func newStreamHandler(stream *quic.Stream) *streamClient {
 	if stream == nil {
 		logrus.WithFields(logrus.Fields{
 			"stream_id": "nil",
@@ -73,7 +73,7 @@ func (t *streamClient) watchClose() {
 		return
 	}
 
-	go func(stream quic.Stream) {
+	go func(stream *quic.Stream) {
 		<-ctx.Done()
 
 		t.mu.Lock()

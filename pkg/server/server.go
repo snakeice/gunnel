@@ -86,6 +86,7 @@ func (s *Server) certInfo() *certmanager.CertReqInfo {
 	}
 }
 
+//nolint:gocognit // This function handles multiple HTTP server setup scenarios
 func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -211,7 +212,7 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 			continue
 		}
 
-		go func(conn quic.Connection) {
+		go func(conn *quic.Conn) {
 			defer func() {
 				if err := conn.CloseWithError(0, ""); err != nil {
 					logrus.WithError(err).Warn("failed to close QUIC connection")

@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -62,7 +63,7 @@ func (c *Client) waitOrReceiveAndHandle(
 		}
 
 		// EOF is expected when stream ends normally
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			logger.Trace("Stream ended normally")
 			return nil
 		}
@@ -156,7 +157,9 @@ func (c *Client) handleBeginStream(
 		return fmt.Errorf("failed to connect to backend: %w", err)
 	}
 	defer func() {
-		_ = backendConn.Close()
+		if err := backendConn.Close(); err != nil {
+			logger.WithError(err).Warn("Failed to close backend connection")
+		}
 	}()
 
 	// Write request to backend
@@ -169,7 +172,11 @@ func (c *Client) handleBeginStream(
 	if err != nil {
 		return fmt.Errorf("failed to read response from backend: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logger.WithError(err).Warn("Failed to close response body")
+		}
+	}()
 
 	// Write response back to stream
 	if err := resp.Write(strm); err != nil {

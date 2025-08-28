@@ -1,5 +1,8 @@
 # Build stage
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.24-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git make
 
 WORKDIR /app
 
@@ -14,15 +17,13 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o gunnel .
 
 # Final stage
-FROM debian:bookworm-slim
+FROM alpine:latest
 
 # Install ca-certificates for TLS
-RUN apt-get update && \
-    apt-get install -y ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk --no-cache add ca-certificates
 
 # Create non-root user
-RUN useradd -r -u 1001 -s /bin/false gunnel
+RUN adduser -D -u 1001 -s /sbin/nologin gunnel
 
 # Copy binary from builder
 COPY --from=builder /app/gunnel /usr/local/bin/gunnel

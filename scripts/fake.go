@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"time"
@@ -19,7 +20,8 @@ func main() {
 		}
 	})
 
-	listener, err := net.Listen("tcp", "127.0.0.1:3000")
+	lc := &net.ListenConfig{}
+	listener, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:3000")
 	if err != nil {
 		panic(err)
 	}

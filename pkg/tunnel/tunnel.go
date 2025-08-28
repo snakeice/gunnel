@@ -13,6 +13,8 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
+const nilString = "nil"
+
 // Tunnel represents a bidirectional tunnel between two connections.
 type Tunnel struct {
 	local  net.Conn
@@ -49,6 +51,8 @@ func NewTunnelWithLocal(local net.Conn, remote transport.Stream) *Tunnel {
 }
 
 // Proxy starts bidirectional tunneling.
+//
+//nolint:gocognit // Complex bidirectional copy logic requires multiple conditionals
 func (t *Tunnel) Proxy() error {
 	// Capture current ends to avoid racing with Close() mutating t.local/t.remote
 	local := t.local
@@ -61,11 +65,11 @@ func (t *Tunnel) Proxy() error {
 	go func() {
 		defer wg.Done()
 
-		laddr := "nil"
+		laddr := nilString
 		if local != nil {
 			laddr = local.LocalAddr().String()
 		}
-		rid := "nil"
+		rid := nilString
 		if remote != nil {
 			rid = remote.ID()
 		}
@@ -104,11 +108,11 @@ func (t *Tunnel) Proxy() error {
 	go func() {
 		defer wg.Done()
 
-		laddr := "nil"
+		laddr := nilString
 		if local != nil {
 			laddr = local.LocalAddr().String()
 		}
-		rid := "nil"
+		rid := nilString
 		if remote != nil {
 			rid = remote.ID()
 		}

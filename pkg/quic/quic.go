@@ -27,7 +27,7 @@ type Server struct {
 
 // Client represents a QUIC client.
 type Client struct {
-	conn quic.Connection
+	conn *quic.Conn
 }
 
 // NewServer creates a new QUIC server.
@@ -68,14 +68,14 @@ func NewClient(addr string) (*Client, error) {
 	}, nil
 }
 
-func NewClientWrapper(conn quic.Connection) *Client {
+func NewClientWrapper(conn *quic.Conn) *Client {
 	return &Client{
 		conn: conn,
 	}
 }
 
 // Accept accepts a new QUIC connection.
-func (s *Server) Accept() (quic.Connection, error) {
+func (s *Server) Accept() (*quic.Conn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
 	defer cancel()
 	return s.listener.Accept(ctx)
@@ -92,12 +92,12 @@ func (s *Server) Addr() string {
 }
 
 // OpenStream opens a new QUIC stream.
-func (c *Client) OpenStream() (quic.Stream, error) {
+func (c *Client) OpenStream() (*quic.Stream, error) {
 	return c.conn.OpenStream()
 }
 
 // AcceptStream accepts a new QUIC stream.
-func (c *Client) AcceptStream(ctx context.Context) (quic.Stream, error) {
+func (c *Client) AcceptStream(ctx context.Context) (*quic.Stream, error) {
 	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	defer cancel()
 	return c.conn.AcceptStream(ctx)

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -166,7 +167,7 @@ func (c *Client) worker(ctx context.Context) error {
 			go func() {
 				if err := c.handleStream(ctx, strm, strmLogger); err != nil {
 					// Only log actual errors, not expected EOF or context cancellation
-					if err != io.EOF && err != context.Canceled {
+					if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
 						strmLogger.WithError(err).Error("Failed to handle stream")
 					}
 				}
@@ -213,7 +214,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 	}
 }
 
-// Stop gracefully stops the client
+// Stop gracefully stops the client.
 func (c *Client) Stop() {
 	c.disconnect()
 }
