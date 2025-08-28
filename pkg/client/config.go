@@ -3,9 +3,9 @@ package client
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 
+	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/protocol"
 	"gopkg.in/yaml.v3"
 )
@@ -33,7 +33,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 	defer func() {
 		if cerr := file.Close(); cerr != nil {
-			log.Printf("failed to close config file %s: %v", configPath, cerr)
+			logrus.WithError(cerr).WithField("path", configPath).Warn("Failed to close config file")
 		}
 	}()
 

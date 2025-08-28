@@ -2,10 +2,10 @@ package server
 
 import (
 	"errors"
-	"log"
 	"os"
 
 	yaml "github.com/goccy/go-yaml"
+	"github.com/sirupsen/logrus"
 )
 
 // Config represents the configuration for the client.
@@ -47,7 +47,7 @@ func (c *Config) LoadConfig(configPath string) error {
 	}
 	defer func() {
 		if cerr := file.Close(); cerr != nil {
-			log.Printf("failed to close config file %s: %v", configPath, cerr)
+			logrus.WithError(cerr).WithField("path", configPath).Warn("Failed to close config file")
 		}
 	}()
 

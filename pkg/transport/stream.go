@@ -64,18 +64,27 @@ func newStreamHandler(stream quic.Stream) *streamClient {
 }
 
 func (t *streamClient) watchClose() {
-	go func() {
-		<-t.stream.Context().Done()
+	if t == nil || t.stream == nil {
+		return
+	}
+
+	ctx := t.stream.Context()
+	if ctx == nil {
+		return
+	}
+
+	go func(stream quic.Stream) {
+		<-ctx.Done()
 
 		t.mu.Lock()
 		defer t.mu.Unlock()
 
-		if t.stream != nil {
+		if t.stream != nil && t.stream == stream {
 			if err := t.stream.Close(); err != nil {
 				logrus.WithError(err).Warn("Failed to close stream on context done")
 			}
 		}
-	}()
+	}(t.stream)
 }
 
 func (t *streamClient) ID() string {
@@ -111,7 +120,7 @@ func (t *streamClient) Receive() (*protocol.Message, error) {
 		if errors.Is(err, io.EOF) {
 			logrus.WithFields(logrus.Fields{
 				"stream_id": t.ID(),
-			}).Debug("EOF reached in transport receive")
+			}).Trace("EOF reached in transport receive")
 			return nil, err
 		}
 		logrus.WithFields(logrus.Fields{
@@ -180,7 +189,7 @@ func (t *streamClient) Read(p []byte) (int, error) {
 		if errors.Is(err, io.EOF) {
 			logrus.WithFields(logrus.Fields{
 				"stream_id": t.ID(),
-			}).Debug("EOF reached in transport read")
+			}).Trace("EOF reached in transport read")
 			return n, err
 		}
 

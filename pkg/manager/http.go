@@ -59,25 +59,6 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 		SendHttpResponse(conn, status, "%s", err)
 		return
 	}
-	// logger.WithField("resp_size", respBuf.Len()).Debug("Received response from client")
-
-	// // Send response to client
-	// resp, err := http.ReadResponse(bufio.NewReader(&respBuf), req)
-	// if err != nil {
-	// 	logger.WithError(err).Error("Failed to read response")
-	// 	SendHttpResponse(conn, 500, "Failed to read response: %s", err)
-	// 	return
-	// }
-
-	// logger.WithField("status_code", resp.StatusCode).Debug("Received response from client")
-
-	// if err := resp.Write(conn); err != nil {
-	// 	logger.WithError(err).Error("Failed to write response to client")
-	// 	SendHttpResponse(conn, 500, "Failed to write response: %s", err)
-	// 	return
-	// }
-
-	// logger.Debug("Successfully wrote response to client")
 }
 
 func (m *Manager) handleGunnel(conn net.Conn, req *http.Request) {

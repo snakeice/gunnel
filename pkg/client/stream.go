@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -23,18 +24,18 @@ func (c *Client) handleStream(
 		if r := recover(); r != nil {
 			logger.WithField("panic", r).Error("Stream handler panicked")
 		}
-		logger.Debug("Releasing stream")
+		logger.Trace("Releasing stream")
 		if err := strm.Close(); err != nil {
 			logger.WithError(err).Error("Failed to close stream")
 		}
 	}()
 
 	for {
-		// Do not exit immediately on ctx.Done(); keep behavior similar to previous code,
-		// letting the receive below fail naturally when the context is canceled.
+		// Check if context is done
 		select {
 		case <-ctx.Done():
 			logger.Infof("Stopping stream %s handler", strm.ID())
+			return nil
 		default:
 		}
 
@@ -46,13 +47,25 @@ func (c *Client) handleStream(
 
 // waitOrReceiveAndHandle waits for an incoming message and dispatches it.
 func (c *Client) waitOrReceiveAndHandle(
-	_ context.Context,
+	ctx context.Context,
 	strm transport.Stream,
 	logger *logrus.Entry,
 ) error {
 	// Read message
 	msg, err := strm.Receive()
 	if err != nil {
+		// Check if context is cancelled
+		select {
+		case <-ctx.Done():
+			return nil // Context cancelled, exit gracefully
+		default:
+		}
+
+		// EOF is expected when stream ends normally
+		if err == io.EOF {
+			logger.Trace("Stream ended normally")
+			return nil
+		}
 		return fmt.Errorf("failed to read message from server, closing connection: %w", err)
 	}
 

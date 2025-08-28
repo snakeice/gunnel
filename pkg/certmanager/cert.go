@@ -3,9 +3,9 @@ package certmanager
 import (
 	"context"
 	"crypto/tls"
-	"log"
 
 	"github.com/caddyserver/certmagic"
+	"github.com/sirupsen/logrus"
 )
 
 type CertReqInfo struct {
@@ -28,13 +28,13 @@ func GetTLSConfigWithLetsEncrypt(req *CertReqInfo) (*tls.Config, error) {
 
 	err := certmagic.ManageSync(context.TODO(), []string{domain})
 	if err != nil {
-		log.Printf("Failed to listen for domain %s: %v", domain, err)
+		logrus.WithError(err).WithField("domain", domain).Error("Failed to manage certificate for domain")
 		return nil, err
 	}
 
 	tlsConfig, err := certmagic.TLS([]string{domain})
 	if err != nil {
-		log.Printf("Failed to get TLS config: %v", err)
+		logrus.WithError(err).Error("Failed to get TLS config")
 		return nil, err
 	}
 

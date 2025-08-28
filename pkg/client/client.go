@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -55,7 +56,7 @@ func (c *Client) Start(ctx context.Context) error {
 		return err
 	}
 
-	go c.reconnectLoop()
+	go c.reconnectLoop(ctx)
 
 	return c.worker(ctx)
 }
@@ -74,7 +75,10 @@ func (c *Client) register() error {
 
 	c.logger.Info("All backends registered successfully")
 
-	connection.New(c.conn).Start()
+	// Only start connection if transport is still valid
+	if c.conn != nil && !c.conn.IsClosed() {
+		connection.New(c.conn).Start()
+	}
 
 	return nil
 }
@@ -161,7 +165,10 @@ func (c *Client) worker(ctx context.Context) error {
 
 			go func() {
 				if err := c.handleStream(ctx, strm, strmLogger); err != nil {
-					strmLogger.WithError(err).Error("Failed to handle stream")
+					// Only log actual errors, not expected EOF or context cancellation
+					if err != io.EOF && err != context.Canceled {
+						strmLogger.WithError(err).Error("Failed to handle stream")
+					}
 				}
 			}()
 		}
@@ -169,8 +176,15 @@ func (c *Client) worker(ctx context.Context) error {
 }
 
 // reconnectLoop handles reconnection attempts.
-func (c *Client) reconnectLoop() {
+func (c *Client) reconnectLoop(ctx context.Context) {
 	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("Stopping reconnect loop")
+			return
+		default:
+		}
+
 		if c.conn == nil || c.conn.IsClosed() {
 			func() {
 				c.mu.Lock()
@@ -197,6 +211,11 @@ func (c *Client) reconnectLoop() {
 
 		time.Sleep(c.reconnectDelay)
 	}
+}
+
+// Stop gracefully stops the client
+func (c *Client) Stop() {
+	c.disconnect()
 }
 
 // disconnect closes all connections.
