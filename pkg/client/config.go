@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/protocol"
@@ -27,6 +28,9 @@ type BackendConfig struct {
 }
 
 func LoadConfig(configPath string) (*Config, error) {
+	// Clean the path to prevent directory traversal
+	configPath = filepath.Clean(configPath)
+
 	file, err := os.Open(configPath)
 	if err != nil {
 		return nil, err

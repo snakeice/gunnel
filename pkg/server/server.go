@@ -86,6 +86,7 @@ func (s *Server) certInfo() *certmanager.CertReqInfo {
 	}
 }
 
+//nolint:gocognit // This function handles multiple connection scenarios
 func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sync.WaitGroup) {
 	defer wg.Done()
 

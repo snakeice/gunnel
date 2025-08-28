@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"os"
+	"path/filepath"
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/sirupsen/logrus"
@@ -41,6 +42,9 @@ func DefaultConfig() *Config {
 }
 
 func (c *Config) LoadConfig(configPath string) error {
+	// Clean the path to prevent directory traversal
+	configPath = filepath.Clean(configPath)
+
 	file, err := os.Open(configPath)
 	if err != nil {
 		return err
