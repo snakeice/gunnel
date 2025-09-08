@@ -10,7 +10,7 @@ require (
 	github.com/magiconair/properties v1.8.10
 	github.com/quic-go/quic-go v0.54.0
 	github.com/sirupsen/logrus v1.9.3
-	github.com/spf13/cobra v1.9.1
+	github.com/spf13/cobra v1.10.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -24,7 +24,7 @@ require (
 	github.com/mholt/acmez/v3 v3.1.2 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.uber.org/mock v0.5.2 // indirect
