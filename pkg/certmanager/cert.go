@@ -18,6 +18,7 @@ func GetTLSConfigWithLetsEncrypt(req *CertReqInfo) (*tls.Config, error) {
 	certmagic.DefaultACME.Agreed = true
 	certmagic.DefaultACME.Email = req.Email
 	certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
+	certmagic.DefaultACME.Profile = "classic"
 	certmagic.DefaultACME.DisableHTTPChallenge = false
 	certmagic.Default.OnDemand = new(certmagic.OnDemandConfig)
 	certmagic.Default.OnDemand.DecisionFunc = func(ctx context.Context, name string) error {
