@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"net"
+
 	"net/http"
 	"time"
 
@@ -14,32 +14,11 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
-// HandleHTTPConnection handles an HTTP connection.
-func (r *Manager) HandleHTTPConnection(conn net.Conn) {
-	// Reconstruct the request
-	reader := bufio.NewReader(conn)
-	writer := bufio.NewWriter(conn)
-	defer func() {
-		if err := writer.Flush(); err != nil {
-			logrus.WithError(err).Warn("Failed to flush writer")
-		}
-	}()
-	defer func() {
-		if cerr := conn.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
-			logrus.WithError(cerr).Warn("Failed to close connection")
-		}
-	}()
-
-	req, err := http.ReadRequest(reader)
-	if err != nil {
-		logrus.WithError(err).Error("Failed to read HTTP request")
-		SendHttpResponse(conn, 400, "Failed to read request: %s", err)
-		return
-	}
-
+// ServeHTTP handles an HTTP request and proxies it to the correct backend.
+func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	subdomain := extractSubdomain(req)
 	if subdomain == "gunnel" {
-		r.handleGunnel(conn, req)
+		m.handleGunnel(w, req)
 		return
 	}
 
@@ -50,43 +29,38 @@ func (r *Manager) HandleHTTPConnection(conn net.Conn) {
 
 	logger.Infof("%s %s", req.Method, req.URL)
 
-	if err := r.handleProxyFlow(conn, req, subdomain, logger); err != nil {
+	if err := m.handleProxyFlow(w, req, subdomain, logger); err != nil {
 		logger.WithError(err).Error("Proxy flow failed")
-		status := 500
+		status := http.StatusInternalServerError
 		if errors.Is(err, ErrNoConnection) {
-			status = 404
+			status = http.StatusNotFound
 		}
-		SendHttpResponse(conn, status, "%s", err)
-		return
+		http.Error(w, err.Error(), status)
 	}
 }
 
-func (m *Manager) handleGunnel(conn net.Conn, req *http.Request) {
+func (m *Manager) handleGunnel(w http.ResponseWriter, req *http.Request) {
 	if m.gunnelSubdomainHandler == nil {
-		SendHttpResponse(conn, 500, "Gunnel subdomain handler not set")
+		http.Error(w, "Gunnel subdomain handler not set", http.StatusInternalServerError)
 		return
 	}
 
-	resWriter := NewResponseWriterWrapper(conn)
-
-	if !certmagic.DefaultACME.HandleHTTPChallenge(resWriter, req) {
-		m.gunnelSubdomainHandler(resWriter, req)
+	if !certmagic.DefaultACME.HandleHTTPChallenge(w, req) {
+		m.gunnelSubdomainHandler(w, req)
 	}
-
-	resWriter.Flush()
 }
 
 // handleProxyFlow coordinates acquiring a stream, beginning the connection,
 // waiting for readiness, and performing bidirectional proxying.
-func (r *Manager) handleProxyFlow(
-	conn net.Conn,
+func (m *Manager) handleProxyFlow(
+	w http.ResponseWriter,
 	req *http.Request,
 	subdomain string,
 	baseLogger *logrus.Entry,
 ) error {
 	logger := baseLogger
 
-	stream, err := r.Acquire(subdomain)
+	stream, err := m.Acquire(subdomain)
 	if err != nil {
 		if errors.Is(err, ErrNoConnection) {
 			logger.Error("No service found for subdomain")
@@ -95,7 +69,7 @@ func (r *Manager) handleProxyFlow(
 		logger.WithError(err).Error("Failed to acquire transport")
 		return fmt.Errorf("service temporarily unavailable: %w", err)
 	}
-	defer r.Release(subdomain, stream)
+	defer m.Release(subdomain, stream)
 
 	logger = logger.WithFields(logrus.Fields{
 		"stream_id": stream.ID(),
@@ -113,7 +87,7 @@ func (r *Manager) handleProxyFlow(
 	respChan := make(chan error)
 
 	// Reader goroutine: wait only for ConnectionReady, then return.
-	go r.readClientMessagesAndProxy(stream, readyChan, respChan, logger)
+	go m.readClientMessagesAndProxy(stream, readyChan, respChan, logger)
 
 	// Wait for readiness or error/timeout
 	select {
@@ -151,9 +125,11 @@ func (r *Manager) handleProxyFlow(
 		}
 	}()
 
-	if err := resp.Write(conn); err != nil {
+	if err := resp.Write(w); err != nil {
 		logger.WithError(err).Error("Failed to write response to client")
-		return fmt.Errorf("failed to write response to client: %w", err)
+		// The response has already been partially sent, so we can't send a
+		// different error. The connection will be closed by the server.
+		return nil
 	}
 
 	return nil
@@ -161,7 +137,7 @@ func (r *Manager) handleProxyFlow(
 
 // readClientMessagesAndProxy waits for ConnectionReady, then signals readiness.
 // Any error before readiness is sent on respChan.
-func (r *Manager) readClientMessagesAndProxy(
+func (m *Manager) readClientMessagesAndProxy(
 	stream transport.Stream,
 	readyChan chan<- struct{},
 	respChan chan<- error,

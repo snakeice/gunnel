@@ -2,10 +2,8 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -68,10 +66,35 @@ func (s *Server) Start(ctx context.Context) error {
 	errChan := make(chan error)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(2)
+	wg.Add(1)
+
+	httpServer := s.newHTTPServer()
+	go func() {
+		logrus.Infof("starting HTTP/S server on %s", httpServer.Addr)
+		var err error
+		if httpServer.TLSConfig != nil {
+			// cert and key are provided by the TLSConfig.GetCertificate function
+			err = httpServer.ListenAndServeTLS("", "")
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- fmt.Errorf("failed to start http server: %w", err)
+		}
+	}()
+
+	go func() {
+		<-ctx.Done()
+		logrus.Info("Server context done, shutting down http server")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			logrus.WithError(err).Warn("http server shutdown error")
+		}
+	}()
 
 	go s.StartQUICServer(ctx, errChan, wg)
-	go s.StartHTTPServer(ctx, errChan, wg)
 	go s.updater(ctx, errChan)
 
 	wg.Wait()
@@ -86,14 +109,12 @@ func (s *Server) certInfo() *certmanager.CertReqInfo {
 	}
 }
 
-//nolint:gocognit // This function handles multiple connection scenarios
-func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	var listener net.Listener
-	var err error
-
+func (s *Server) newHTTPServer() *http.Server {
 	addr := portToAddr(s.config.ServerPort)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: s.connManager,
+	}
 
 	if s.config.Cert.Enabled {
 		logrus.Infof("Setting up TLS for domain %s", s.config.Domain)
@@ -101,61 +122,11 @@ func (s *Server) StartHTTPServer(ctx context.Context, errChan chan error, wg *sy
 
 		tlsConfig, err := certmanager.GetTLSConfigWithLetsEncrypt(certInfo)
 		if err != nil {
-			errChan <- fmt.Errorf("failed to get TLS config: %w", err)
-			return
+			logrus.WithError(err).Fatal("failed to get TLS config")
 		}
-
-		listener, err = tls.Listen("tcp", addr, tlsConfig)
-		if err != nil {
-			errChan <- fmt.Errorf("failed to start TLS user server: %w", err)
-			return
-		}
-		logrus.Infof(
-			"HTTPS server started on %s with TLS for domain %s",
-			listener.Addr(),
-			s.config.Domain,
-		)
-	} else {
-		lc := net.ListenConfig{}
-		listener, err = lc.Listen(ctx, "tcp", addr)
-		if err != nil {
-			errChan <- fmt.Errorf("failed to start user server: %w", err)
-			return
-		}
-		logrus.Infof("HTTP server started on %s", listener.Addr())
+		server.TLSConfig = tlsConfig
 	}
-	defer func() {
-		if err := listener.Close(); err != nil {
-			logrus.WithError(err).Warn("failed to close HTTP listener")
-		}
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logrus.Info("Server context done, shutting down http server")
-			return
-		default:
-			conn, err := listener.Accept()
-			if err != nil {
-				logrus.WithError(err).Error("Failed to accept user connection")
-				continue
-			}
-
-			if err := conn.SetDeadline(time.Now().Add(connectionTimeout)); err != nil {
-				logrus.WithError(err).Warn("Failed to set user connection deadline")
-			}
-
-			go func(conn net.Conn) {
-				defer func() {
-					if cerr := conn.Close(); cerr != nil && !errors.Is(cerr, net.ErrClosed) {
-						logrus.WithError(cerr).Warn("Failed to close user connection")
-					}
-				}()
-				s.connManager.HandleHTTPConnection(conn)
-			}(conn)
-		}
-	}
+	return server
 }
 
 func (s *Server) updater(ctx context.Context, errChan chan error) {
@@ -195,11 +166,19 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 		}
 	}()
 
+	go func() {
+		<-ctx.Done()
+		_ = quicServer.Close()
+	}()
+
 	logrus.Infof("QUIC server started on %s", quicServer.Addr())
 
 	for {
 		conn, err := quicServer.Accept()
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			if !errors.Is(err, context.DeadlineExceeded) {
 				logrus.WithError(err).Error("Failed to accept client connection")
 			}
