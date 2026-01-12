@@ -6,7 +6,7 @@ toolchain go1.24.2
 
 require (
 	github.com/caddyserver/certmagic v0.25.0
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/magiconair/properties v1.8.10
 	github.com/quic-go/quic-go v0.54.1
 	github.com/sirupsen/logrus v1.9.3
