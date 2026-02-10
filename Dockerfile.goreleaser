@@ -1,7 +1,7 @@
 # Dockerfile for GoReleaser builds
 # This Dockerfile is not used currently - we use the main Dockerfile which builds from source
 # Kept for future migration to dockers_v2 format
-FROM alpine:3.22
+FROM alpine:3.23
 
 # Install ca-certificates for TLS
 RUN apk --no-cache add ca-certificates

@@ -17,7 +17,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o gunnel .
 
 # Final stage
-FROM alpine:3.22
+FROM alpine:3.23
 
 # Install ca-certificates for TLS
 RUN apk --no-cache add ca-certificates
