@@ -21,7 +21,10 @@ func (m *Manager) HandleConnection(transp transport.Transport) {
 	for {
 		select {
 		case stream := <-streamChan:
-			go m.HandleStreamDude(stream)
+			logrus.WithFields(logrus.Fields{
+				"stream_id": stream.ID(),
+				"addr":      transp.Addr(),
+			}).Debug("Stream received but no handler assigned (expected - handled by connection)")
 		case <-transp.Root().Context().Done():
 			logrus.Info("Transport context done, stopping stream handling")
 			return
@@ -51,21 +54,6 @@ func (m *Manager) acceptStreams(transp transport.Transport, streamChan chan tran
 
 		streamChan <- stream
 		cancel()
-	}
-}
-
-func (m *Manager) HandleStreamDude(stream transport.Stream) {
-	for {
-		buf := make([]byte, 4)
-		_, err := stream.Read(buf)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to receive message")
-			return
-		}
-		logrus.WithFields(logrus.Fields{
-			"stream_id": stream.ID(),
-			"buf":       buf,
-		}).Debug("Received message")
 	}
 }
 
