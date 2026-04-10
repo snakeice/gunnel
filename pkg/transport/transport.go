@@ -74,7 +74,7 @@ func newWrapper(client *gunnelquic.Client, isServer bool) (*connectionTransport,
 }
 
 func NewFromServer(ctx context.Context, client *quic.Conn) (Transport, error) {
-	conn := gunnelquic.NewClientWrapper(client)
+	conn := gunnelquic.NewClientFromConn(client)
 
 	transp, err := newWrapper(conn, true)
 	if err != nil {
