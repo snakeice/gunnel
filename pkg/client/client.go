@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"time"
@@ -178,6 +179,7 @@ func (c *Client) worker(ctx context.Context) error {
 
 // reconnectLoop handles reconnection attempts.
 func (c *Client) reconnectLoop(ctx context.Context) {
+	attemptCount := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -187,26 +189,46 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 		}
 
 		if c.conn == nil || c.conn.IsClosed() {
+			attemptCount++
+			exponentialFactor := math.Pow(2, float64(attemptCount-1))
+			maxRetry := time.Duration(300) * time.Second
+			nextRetry := time.Duration(
+				math.Min(float64(c.reconnectDelay)*exponentialFactor, float64(maxRetry)),
+			) * time.Second
+
 			func() {
 				c.mu.Lock()
 				defer c.mu.Unlock()
 
-				c.logger.Info("No active connections, attempting to reconnect")
+				c.logger.Warnf(
+					"No active connections. Reconnecting in %v (attempt %d)",
+					nextRetry, attemptCount,
+				)
 
 				transp, err := transport.New(c.config.ServerAddr)
 				if err != nil {
-					c.logger.WithError(err).Error("Failed to create transport")
+					c.logger.WithError(err).Warnf(
+						"Failed to create transport (attempt %d)",
+						attemptCount,
+					)
 					return
 				}
 
 				c.conn = transp
 
 				if err := c.register(); err != nil {
-					c.logger.WithError(err).Error("Failed to reconnect")
+					c.logger.WithError(err).Warnf(
+						"Failed to register (attempt %d)",
+						attemptCount,
+					)
+					return
 				}
+
+				c.logger.Info("Successfully reconnected!")
+				attemptCount = 0
 			}()
 
-			time.Sleep(c.reconnectDelay)
+			time.Sleep(nextRetry)
 			continue
 		}
 
