@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -19,6 +20,14 @@ const (
 	handshakeTimeout = 60 * time.Second
 	keepAlivePeriod  = 15 * time.Second
 	maxIdleTimeout   = 120 * time.Second
+)
+
+var (
+	//nolint:gochecknoglobals // Global cache with sync.Once for single initialization
+	cachedTLSConfig *tls.Config
+	//nolint:gochecknoglobals // sync.Once guard for single-initialization pattern
+	tlsConfigOnce sync.Once
+	errTLSConfig  error
 )
 
 // Server represents a QUIC server.
@@ -33,7 +42,7 @@ type Client struct {
 
 // NewServer creates a new QUIC server.
 func NewServer(addr string) (*Server, error) {
-	tlsConfig, err := generateTLSConfig()
+	tlsConfig, err := getCachedTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate TLS config: %w", err)
 	}
@@ -114,6 +123,15 @@ func (c *Client) Close() error {
 // GetStreamID returns the stream ID of the client connection.
 func (c *Client) Addr() string {
 	return c.conn.LocalAddr().String()
+}
+
+// getCachedTLSConfig returns a cached TLS config, generating it once and reusing for all connections.
+// This significantly reduces startup time by avoiding regenerating certificates on every server start.
+func getCachedTLSConfig() (*tls.Config, error) {
+	tlsConfigOnce.Do(func() {
+		cachedTLSConfig, errTLSConfig = generateTLSConfig()
+	})
+	return cachedTLSConfig, errTLSConfig
 }
 
 // generateTLSConfig generates a self-signed TLS certificate for QUIC.
