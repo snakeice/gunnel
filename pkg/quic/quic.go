@@ -157,8 +157,8 @@ func generateQuicConfig() *quic.Config {
 		HandshakeIdleTimeout:  handshakeTimeout,
 		KeepAlivePeriod:       keepAlivePeriod,
 		MaxIdleTimeout:        maxIdleTimeout,
-		MaxIncomingStreams:    5000,
-		MaxIncomingUniStreams: 5000,
+		MaxIncomingStreams:    1000,
+		MaxIncomingUniStreams: 1000,
 		Allow0RTT:             true,
 	}
 }
