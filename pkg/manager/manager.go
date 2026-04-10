@@ -12,7 +12,7 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
-const streamAcceptTimeout = 30 * time.Second
+const streamAcceptTimeout = 5 * time.Second
 
 var (
 	ErrNoConnection      = errors.New("no connection available")
