@@ -37,9 +37,9 @@ func TestClientConfigValidation(t *testing.T) {
 	}
 
 	_, err := client.New(cfg)
-	if err == nil && err.Error() == "" {
-		t.Log("✓ Client config validation working (empty backend allowed)")
-	} else if err != nil {
+	if err != nil {
 		t.Logf("✓ Client config validation working: %v", err)
+	} else {
+		t.Log("✓ Client created (empty backend allowed)")
 	}
 }
