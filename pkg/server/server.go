@@ -20,10 +20,6 @@ import (
 	"github.com/snakeice/gunnel/pkg/webui"
 )
 
-const (
-	connectionTimeout = 120 * time.Second
-)
-
 type Server struct {
 	config *Config
 
