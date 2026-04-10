@@ -108,8 +108,9 @@ func (s *Server) certInfo() *certmanager.CertReqInfo {
 func (s *Server) newHTTPServer() *http.Server {
 	addr := portToAddr(s.config.ServerPort)
 	server := &http.Server{
-		Addr:    addr,
-		Handler: s.connManager,
+		Addr:              addr,
+		Handler:           s.connManager,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	if s.config.Cert.Enabled {
@@ -164,7 +165,9 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 
 	go func() {
 		<-ctx.Done()
-		_ = quicServer.Close()
+		if err := quicServer.Close(); err != nil {
+			logrus.WithError(err).Warn("failed to close QUIC server on shutdown")
+		}
 	}()
 
 	logrus.Infof("QUIC server started on %s", quicServer.Addr())
