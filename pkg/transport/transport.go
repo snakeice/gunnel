@@ -212,29 +212,31 @@ func (t *connectionTransport) findInactiveStreamIDs(maxInactive time.Duration) [
 	return ids
 }
 
-func (t *connectionTransport) closeStreamsByID(ids []int) {
-	for _, id := range ids {
-		if id < len(t.streams) {
-			stream := t.streams[id]
-			if err := stream.Close(); err != nil {
-				logrus.WithError(err).Errorf("Failed to close stream %s", stream.ID())
-			}
-		}
-	}
-}
-
-func (t *connectionTransport) removeStreamsByID(ids []int) {
-	if len(ids) == 0 {
+// removeStreams removes streams by index, closing them first.
+// Indices must be sorted in reverse order for safe removal.
+func (t *connectionTransport) removeStreams(indices []int) {
+	if len(indices) == 0 {
 		return
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	slices.Sort(ids)
-	slices.Reverse(ids)
+	// Close all streams first
+	for _, id := range indices {
+		if id < len(t.streams) {
+			stream := t.streams[id]
+			if err := stream.Close(); err != nil {
+				logrus.WithError(err).Warnf("Failed to close stream %s", stream.ID())
+			}
+		}
+	}
 
-	for _, id := range ids {
+	// Then remove them (in reverse order to maintain indices)
+	slices.Sort(indices)
+	slices.Reverse(indices)
+
+	for _, id := range indices {
 		if id < len(t.streams) {
 			t.streams = slices.Delete(t.streams, id, id+1)
 		}
@@ -251,8 +253,7 @@ func (t *connectionTransport) cleanupInactiveStreams(maxInactive time.Duration) 
 		}
 
 		streamsToRemove := t.findInactiveStreamIDs(maxInactive)
-		t.closeStreamsByID(streamsToRemove)
-		t.removeStreamsByID(streamsToRemove)
+		t.removeStreams(streamsToRemove)
 	}
 }
 
