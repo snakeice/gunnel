@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -51,8 +52,10 @@ func NewServer(addr string) (*Server, error) {
 
 // NewClient creates a new QUIC client.
 func NewClient(addr string) (*Client, error) {
+	insecureMode := os.Getenv("GUNNEL_INSECURE") == "true"
+
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // For testing purposes only
+		InsecureSkipVerify: insecureMode, //nolint:gosec // Only enabled when GUNNEL_INSECURE env var is set
 		MinVersion:         tls.VersionTLS13,
 	}
 
@@ -68,7 +71,7 @@ func NewClient(addr string) (*Client, error) {
 	}, nil
 }
 
-func NewClientWrapper(conn *quic.Conn) *Client {
+func NewClientFromConn(conn *quic.Conn) *Client {
 	return &Client{
 		conn: conn,
 	}
