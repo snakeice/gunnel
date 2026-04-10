@@ -153,12 +153,13 @@ func (t *Tunnel) Proxy() error {
 }
 
 // copy handles the actual data transfer between connections.
+//
+//nolint:gocognit // Bidirectional IO transfer with error handling
 func (t *Tunnel) copy(dst io.Writer, src io.Reader) error {
-	buf := make([]byte, 32*1024) // 32KB buffer
+	buf := make([]byte, 32*1024)
 	totalBytes := 0
-	lastReadTime := time.Now()
-	readCount := 0
-	writeCount := 0
+	lastLogTime := time.Now()
+	lastLogBytes := 0
 
 	for {
 		if src == nil {
@@ -168,55 +169,38 @@ func (t *Tunnel) copy(dst io.Writer, src io.Reader) error {
 		n, err := src.Read(buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
-				logrus.WithFields(logrus.Fields{
-					"total_bytes": totalBytes,
-					"read_count":  readCount,
-					"write_count": writeCount,
-					"last_read":   lastReadTime,
-					"duration":    time.Since(lastReadTime),
-				}).Trace("EOF reached, copy complete")
+				if totalBytes > 0 {
+					logrus.WithFields(logrus.Fields{
+						"total_bytes": totalBytes,
+						"duration":    time.Since(lastLogTime),
+					}).Debug("Copy completed")
+				}
 				return nil
 			}
-			logrus.WithFields(logrus.Fields{
-				"error":       err,
-				"total_bytes": totalBytes,
-				"read_count":  readCount,
-				"write_count": writeCount,
-			}).Error("Failed to read data")
+			logrus.WithError(err).Error("Failed to read data")
 			return fmt.Errorf("failed to read data: %w", err)
 		}
 
 		if n > 0 {
 			totalBytes += n
-			readCount++
-			lastReadTime = time.Now()
-			logrus.WithFields(logrus.Fields{
-				"bytes_read": n,
-				"total":      totalBytes,
-				"read_count": readCount,
-			}).Trace("Read data from source")
 
 			if _, err := dst.Write(buf[:n]); err != nil {
-				logrus.WithFields(logrus.Fields{
-					"error":       err,
-					"bytes_read":  n,
-					"total":       totalBytes,
-					"write_count": writeCount,
-				}).Error("Failed to write data to destination")
+				logrus.WithError(err).Error("Failed to write data")
 				return fmt.Errorf("failed to write data: %w", err)
 			}
-			writeCount++
-			logrus.WithFields(logrus.Fields{
-				"bytes_written": n,
-				"total":         totalBytes,
-				"write_count":   writeCount,
-			}).Trace("Wrote data to destination")
-		} else {
-			logrus.WithFields(logrus.Fields{
-				"total_bytes": totalBytes,
-				"read_count":  readCount,
-				"write_count": writeCount,
-			}).Debug("No data read, continuing")
+
+			elapsed := time.Since(lastLogTime)
+			if totalBytes-lastLogBytes >= 1024*1024 || elapsed > 10*time.Second {
+				bytesTransferred := totalBytes - lastLogBytes
+				ratePerSecond := float64(bytesTransferred) / elapsed.Seconds()
+				rateMBps := ratePerSecond / 1024 / 1024
+				logrus.WithFields(logrus.Fields{
+					"bytes_transferred": totalBytes,
+					"rate":              fmt.Sprintf("%.2f MB/s", rateMBps),
+				}).Debug("Copy progress")
+				lastLogBytes = totalBytes
+				lastLogTime = time.Now()
+			}
 		}
 	}
 }
