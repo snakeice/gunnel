@@ -34,17 +34,25 @@
                 .then(response => response.json())
                 .then(data => {
                     const tbody = document.getElementById('clients-body');
-                    tbody.innerHTML = '';
+                    const fragment = document.createDocumentFragment();
                     data.forEach(client => {
-                        tbody.innerHTML += `
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${client.subdomain}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${client.connections}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(client.last_active)}</td>
-                            </tr>
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${escapeHtml(client.subdomain)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${client.connections}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(client.last_active)}</td>
                         `;
+                        fragment.appendChild(tr);
                     });
+                    tbody.innerHTML = '';
+                    tbody.appendChild(fragment);
                 });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         function updateStreams() {
@@ -52,23 +60,56 @@
                 .then(response => response.json())
                 .then(data => {
                     const tbody = document.getElementById('streams-body');
-                    tbody.innerHTML = '';
+                    const fragment = document.createDocumentFragment();
                     data.forEach(stream => {
-                        tbody.innerHTML += `
-                            <tr>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${stream.id}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${stream.subdomain}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(stream.start_time)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatBytes(stream.bytes_in)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatBytes(stream.bytes_out)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${stream.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                                        ${stream.is_active ? 'Active' : 'Inactive'}
-                                    </span>
-                                </td>
-                            </tr>
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${escapeHtml(stream.id)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${escapeHtml(stream.subdomain)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(stream.start_time)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatBytes(stream.bytes_in)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatBytes(stream.bytes_out)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${stream.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                    ${stream.is_active ? 'Active' : 'Inactive'}
+                                </span>
+                            </td>
                         `;
+                        fragment.appendChild(tr);
                     });
+                    tbody.innerHTML = '';
+                    tbody.appendChild(fragment);
+                });
+        }
+
+        function updateHoneypot() {
+            fetch('/api/honeypot')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('honeypot-body');
+                    const fragment = document.createDocumentFragment();
+                    
+                    const ips = Object.keys(data);
+                    document.getElementById('suspicious-ips').textContent = ips.length;
+                    
+                    ips.forEach(ip => {
+                        const stats = data[ip];
+                        const subdomains = Object.keys(stats.subdomains_tried || {}).join(', ');
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white font-mono">${escapeHtml(ip)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${stats.request_count}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white text-sm max-w-xs truncate" title="${escapeHtml(subdomains)}">${subdomains || '-'}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(stats.first_seen)}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white">${formatDate(stats.last_seen)}</td>
+                        `;
+                        fragment.appendChild(tr);
+                    });
+                    tbody.innerHTML = '';
+                    tbody.appendChild(fragment);
+                })
+                .catch(err => {
+                    document.getElementById('suspicious-ips').textContent = '-';
                 });
         }
 
@@ -87,18 +128,15 @@
             return new Date(timestamp).toLocaleString();
         }
 
-        setInterval(() => {
-            updateStats();
-            updateStreams();
-        }, 1000);
-
-        setInterval(() => {
-            updateClients();
-        }, 5000);
+        setInterval(updateStats, 2000);
+        setInterval(updateStreams, 5000);
+        setInterval(updateHoneypot, 10000);
+        setInterval(updateClients, 5000);
 
         updateStats();
         updateClients();
         updateStreams();
+        updateHoneypot();
     </script>
 </head>
 <body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-200">
@@ -120,7 +158,7 @@
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg mb-6 transition-colors duration-200">
                 <div class="px-4 py-5 sm:p-6">
                     <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Overview</h3>
-                    <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                    <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
                         <div class="bg-gray-50 dark:bg-gray-700 overflow-hidden shadow rounded-lg transition-colors duration-200">
                             <div class="px-4 py-5 sm:p-6">
                                 <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Uptime</dt>
@@ -143,6 +181,12 @@
                             <div class="px-4 py-5 sm:p-6">
                                 <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Total Data Transferred</dt>
                                 <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="total-bytes-io">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-red-50 dark:bg-red-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-red-600 dark:text-red-300 truncate">Suspicious IPs</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-red-600 dark:text-red-400" id="suspicious-ips">-</dd>
                             </div>
                         </div>
                     </div>
@@ -170,7 +214,7 @@
             </div>
 
             <!-- Streams Table -->
-            <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg transition-colors duration-200">
+            <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg mb-6 transition-colors duration-200">
                 <div class="px-4 py-5 sm:px-6">
                     <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Active Streams</h3>
                 </div>
@@ -187,6 +231,29 @@
                             </tr>
                         </thead>
                         <tbody id="streams-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Honeypot Table -->
+            <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg transition-colors duration-200">
+                <div class="px-4 py-5 sm:px-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Suspicious IPs (Honeypot)</h3>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">IPs that requested non-existent subdomains</p>
+                </div>
+                <div class="border-t border-gray-200 dark:border-gray-700">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-red-50 dark:bg-red-900/30">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-red-600 dark:text-red-300 uppercase tracking-wider">IP Address</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-red-600 dark:text-red-300 uppercase tracking-wider">Request Count</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-red-600 dark:text-red-300 uppercase tracking-wider">Subdomains Tried</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-red-600 dark:text-red-300 uppercase tracking-wider">First Seen</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-red-600 dark:text-red-300 uppercase tracking-wider">Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="honeypot-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         </tbody>
                     </table>
                 </div>

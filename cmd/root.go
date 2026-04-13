@@ -19,7 +19,7 @@ func Execute() {
 		Use:   "gunnel",
 		Short: "A lightweight tunneling application",
 		Long: `Gunnel is a lightweight tunneling application that supports both HTTP and TCP protocols.
-		It allows you to expose local services to the internet through a remote server.`,
+		Expose local services to the internet through a remote server.`,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 			if level != "" {
 				lvl, err := logrus.ParseLevel(level)

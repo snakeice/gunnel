@@ -4,6 +4,9 @@ backend:
     port: 3000
     subdomain: test
     protocol: http
+    # allowed_paths:
+    #   - /api/*     # Allow all paths starting with /api/
+    #   - /health    # Allow exact path /health
   svc:
     host:
     port: 3000

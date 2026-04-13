@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -15,7 +16,6 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
-// handleStreams handles incoming messages from the server.
 func (c *Client) handleStream(
 	ctx context.Context,
 	strm transport.Stream,
@@ -32,7 +32,6 @@ func (c *Client) handleStream(
 	}()
 
 	for {
-		// Check if context is done
 		select {
 		case <-ctx.Done():
 			logger.Infof("Stopping stream %s handler", strm.ID())
@@ -43,10 +42,12 @@ func (c *Client) handleStream(
 		if err := c.waitOrReceiveAndHandle(ctx, strm, logger); err != nil {
 			return err
 		}
+
+		logger.Debug("Request processed, closing stream")
+		return nil
 	}
 }
 
-// waitOrReceiveAndHandle waits for an incoming message and dispatches it.
 func (c *Client) waitOrReceiveAndHandle(
 	ctx context.Context,
 	strm transport.Stream,
@@ -75,13 +76,12 @@ func (c *Client) waitOrReceiveAndHandle(
 	return c.dispatchMessage(strm, logger, msg)
 }
 
-// dispatchMessage routes the message to specific handlers.
 func (c *Client) dispatchMessage(
 	strm transport.Stream,
 	logger *logrus.Entry,
 	msg *protocol.Message,
 ) error {
-	switch msg.Type { //nolint:exhaustive // only messages relevant to client handling here
+	switch msg.Type { //nolint:exhaustive
 	case protocol.MessageBeginStream:
 		return c.handleBeginStream(strm, logger, msg)
 
@@ -109,7 +109,6 @@ func (c *Client) dispatchMessage(
 	}
 }
 
-// handleBeginStream establishes the tunnel, signals readiness and proxies data.
 func (c *Client) handleBeginStream(
 	strm transport.Stream,
 	baseLogger *logrus.Entry,
@@ -132,7 +131,6 @@ func (c *Client) handleBeginStream(
 		"client_id": strm.ID(),
 	})
 
-	// Send connection ready message
 	readyMsg := &protocol.ConnectionReady{
 		Subdomain: beginMsg.Subdomain,
 	}
@@ -141,14 +139,30 @@ func (c *Client) handleBeginStream(
 		return fmt.Errorf("failed to send connection ready message: %w", err)
 	}
 
-	// Read HTTP request from stream
 	reader := bufio.NewReader(strm)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		return fmt.Errorf("failed to read request from stream: %w", err)
 	}
 
-	// Connect to backend
+	if !backend.IsPathAllowed(req.URL.Path) {
+		logger.WithField("path", req.URL.Path).Warn("Path not allowed")
+		forbiddenResp := &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Forbidden",
+			Proto:      "HTTP/1.1",
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("403 Forbidden: path not allowed")),
+		}
+		forbiddenResp.Header.Set("Content-Type", "text/plain")
+		if err := forbiddenResp.Write(strm); err != nil {
+			logger.WithError(err).Error("Failed to write forbidden response")
+		}
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	d := &net.Dialer{Timeout: 10 * time.Second}

@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// extractSubdomain extracts the subdomain from a host string.
 func extractSubdomain(req *http.Request) string {
 	// Prefer Host header; fallback to RemoteAddr
 	hostPort := strings.TrimSpace(req.Host)

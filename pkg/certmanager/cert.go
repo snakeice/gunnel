@@ -3,6 +3,7 @@ package certmanager
 import (
 	"context"
 	"crypto/tls"
+	"net/url"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/sirupsen/logrus"
@@ -13,8 +14,31 @@ type CertReqInfo struct {
 	Email  string
 }
 
-// GetTLSConfigWithLetsEncrypt generates a TLS configuration using Let's Encrypt.
+func isValidDomain(domain string) bool {
+	if domain == "" {
+		return false
+	}
+
+	if u, err := url.Parse(domain); err == nil && u.Host != "" {
+		return true
+	}
+
+	if u, err := url.Parse("https://" + domain); err == nil && u.Host != "" {
+		return u.Host == domain || u.Hostname() == domain
+	}
+
+	return false
+}
+
 func GetTLSConfigWithLetsEncrypt(req *CertReqInfo) (*tls.Config, error) {
+	domain := req.Domain
+
+	if !isValidDomain(domain) {
+		logrus.WithField("domain", domain).
+			Warn("Invalid domain, skipping certificate generation")
+		return nil, nil
+	}
+
 	certmagic.DefaultACME.Agreed = true
 	certmagic.DefaultACME.Email = req.Email
 	certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
@@ -24,8 +48,6 @@ func GetTLSConfigWithLetsEncrypt(req *CertReqInfo) (*tls.Config, error) {
 	certmagic.Default.OnDemand.DecisionFunc = func(ctx context.Context, name string) error {
 		return nil
 	}
-
-	domain := req.Domain
 
 	err := certmagic.ManageSync(context.TODO(), []string{domain})
 	if err != nil {

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -18,13 +19,13 @@ type StreamInfo struct {
 
 type streamMetrics struct {
 	streams []*StreamInfo
+	mu      sync.RWMutex
 
 	totalIn  atomic.Int64
 	totalOut atomic.Int64
 }
 
-//nolint:gochecknoglobals // This is a global variable for metrics collection.
-var metricsCollector *streamMetrics = &streamMetrics{
+var metricsCollector = &streamMetrics{
 	streams: make([]*StreamInfo, 0),
 }
 
@@ -38,7 +39,10 @@ func NewInfo(id string) *StreamInfo {
 		BytesSent:     atomic.Int64{},
 	}
 
+	metricsCollector.mu.Lock()
 	metricsCollector.streams = append(metricsCollector.streams, info)
+	metricsCollector.mu.Unlock()
+
 	return info
 }
 
@@ -63,8 +67,30 @@ func (s *StreamInfo) Inactive() {
 	s.LastActive = time.Now()
 }
 
-// GetActiveStreams returns all active streams.
+func CleanupOldStreams(maxAge time.Duration) int {
+	metricsCollector.mu.Lock()
+	defer metricsCollector.mu.Unlock()
+
+	cutoff := time.Now().Add(-maxAge)
+	var active []*StreamInfo
+	removed := 0
+
+	for _, stream := range metricsCollector.streams {
+		if stream.IsActive || stream.LastActive.After(cutoff) {
+			active = append(active, stream)
+		} else {
+			removed++
+		}
+	}
+
+	metricsCollector.streams = active
+	return removed
+}
+
 func GetActiveStreams() []*StreamInfo {
+	metricsCollector.mu.RLock()
+	defer metricsCollector.mu.RUnlock()
+
 	active := make([]*StreamInfo, 0)
 	for _, stream := range metricsCollector.streams {
 		if stream.IsActive {
@@ -87,8 +113,10 @@ func GetActiveStreams() []*StreamInfo {
 	return active
 }
 
-// GetInactiveStreams returns all inactive streams.
 func GetInactiveStreams() []*StreamInfo {
+	metricsCollector.mu.RLock()
+	defer metricsCollector.mu.RUnlock()
+
 	inactiveStreams := make([]*StreamInfo, 0)
 	for _, stream := range metricsCollector.streams {
 		if !stream.IsActive {
@@ -111,8 +139,10 @@ func GetInactiveStreams() []*StreamInfo {
 	return inactiveStreams
 }
 
-// GetStreamStats returns statistics about all streams.
 func GetStreamStats() map[string]any {
+	metricsCollector.mu.RLock()
+	defer metricsCollector.mu.RUnlock()
+
 	stats := make(map[string]any)
 	stats["total_streams"] = len(metricsCollector.streams)
 

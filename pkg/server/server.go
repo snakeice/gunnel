@@ -138,13 +138,9 @@ func (s *Server) updater(ctx context.Context, errChan chan error) {
 			if err != nil {
 				logrus.WithError(err).Error("Failed to server")
 			}
-
 		case <-ctx.Done():
 			logrus.Info("Server context done, shutting down")
 			return
-
-		default:
-			time.Sleep(1 * time.Second)
 		}
 	}
 }
@@ -157,23 +153,24 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 		errChan <- fmt.Errorf("failed to start QUIC server: %w", err)
 		return
 	}
-	defer func() {
+
+	var closeOnce sync.Once
+	closeServer := func() {
 		if err := quicServer.Close(); err != nil {
 			logrus.WithError(err).Warn("failed to close QUIC server")
 		}
-	}()
+	}
+	defer closeOnce.Do(closeServer)
 
 	go func() {
 		<-ctx.Done()
-		if err := quicServer.Close(); err != nil {
-			logrus.WithError(err).Warn("failed to close QUIC server on shutdown")
-		}
+		closeOnce.Do(closeServer)
 	}()
 
 	logrus.Infof("QUIC server started on %s", quicServer.Addr())
 
 	for {
-		conn, err := quicServer.Accept()
+		conn, err := quicServer.Accept(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return

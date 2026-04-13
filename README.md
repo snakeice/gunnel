@@ -1,6 +1,6 @@
 # Gunnel
 
-A modern, lightweight, and secure tunneling solution written in Go.
+Tunneling solution in Go.
 
 [![Test](https://github.com/snakeice/gunnel/actions/workflows/test.yml/badge.svg)](https://github.com/snakeice/gunnel/actions/workflows/test.yml)
 [![Release](https://github.com/snakeice/gunnel/actions/workflows/release.yml/badge.svg)](https://github.com/snakeice/gunnel/actions/workflows/release.yml)
@@ -11,7 +11,7 @@ A modern, lightweight, and secure tunneling solution written in Go.
 
 ## Overview
 
-Gunnel is a tunneling solution designed to securely expose your local services to the internet. It supports both HTTP and TCP protocols, offering features like connection pooling, automatic reconnection, and load balancing. Built on top of the QUIC (HTTP/3) protocol, it ensures modern security and high performance.
+Gunnel exposes local services via QUIC (HTTP/3). Supports HTTP and TCP protocols, connection pooling, automatic reconnection, and load balancing.
 
 ## Features
 
@@ -19,10 +19,8 @@ Gunnel is a tunneling solution designed to securely expose your local services t
 - Automatic reconnection with exponential backoff
 - Load balancing across multiple connections
 - Support for both HTTP and TCP protocols
-- High performance with minimal overhead
-- Detailed logging using logrus
-- Modern and user-friendly CLI interface
-- Reliable connection handshake with ready state confirmation
+- Structured logging via logrus
+- CLI via cobra
 
 ## TODO
 
@@ -233,10 +231,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- [logrus](https://github.com/sirupsen/logrus) for beautiful logging
-- [cobra](https://github.com/spf13/cobra) for the CLI framework
-- [mise](https://github.com/jdx/mise) for task management and tool versioning
-- [quic-go](https://github.com/quic-go/quic-go) for QUIC protocol implementation
+- [logrus](https://github.com/sirupsen/logrus) for structured logging
+- [cobra](https://github.com/spf13/cobra) for CLI
+- [mise](https://github.com/jdx/mise) for task management
+- [quic-go](https://github.com/quic-go/quic-go) for QUIC protocol
 
 ## Quickstart
 

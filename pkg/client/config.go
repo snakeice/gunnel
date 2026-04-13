@@ -5,26 +5,45 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/protocol"
 	"gopkg.in/yaml.v3"
 )
 
-// Config represents the configuration for the client.
-// It contains the server address and a map of backend configurations.
-// Each backend configuration includes the host, port, subdomain, and protocol.
-// The server address is the address of the gunnel server.
 type Config struct {
 	ServerAddr string                    `yaml:"server_addr"`
 	Backend    map[string]*BackendConfig `yaml:"backend"`
 }
 
 type BackendConfig struct {
-	Host      string            `yaml:"host"`
-	Port      uint32            `yaml:"port"`
-	Subdomain string            `yaml:"subdomain"`
-	Protocol  protocol.Protocol `yaml:"protocol"`
+	Host         string            `yaml:"host"`
+	Port         uint32            `yaml:"port"`
+	Subdomain    string            `yaml:"subdomain"`
+	Protocol     protocol.Protocol `yaml:"protocol"`
+	AllowedPaths []string          `yaml:"allowed_paths"`
+}
+
+func (b *BackendConfig) IsPathAllowed(path string) bool {
+	if len(b.AllowedPaths) == 0 {
+		return true
+	}
+
+	for _, allowed := range b.AllowedPaths {
+		if strings.HasSuffix(allowed, "*") {
+			prefix := strings.TrimSuffix(allowed, "*")
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+		} else {
+			if path == allowed {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func LoadConfig(configPath string) (*Config, error) {

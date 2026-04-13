@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	handshakeTimeout = 60 * time.Second
-	keepAlivePeriod  = 15 * time.Second
-	maxIdleTimeout   = 120 * time.Second
+	handshakeTimeout = 30 * time.Second
+	keepAlivePeriod  = 30 * time.Second
+	maxIdleTimeout   = 60 * time.Second
 )
 
 var (
@@ -87,8 +87,8 @@ func NewClientFromConn(conn *quic.Conn) *Client {
 }
 
 // Accept accepts a new QUIC connection.
-func (s *Server) Accept() (*quic.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
+func (s *Server) Accept(ctx context.Context) (*quic.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	defer cancel()
 	return s.listener.Accept(ctx)
 }
@@ -109,9 +109,8 @@ func (c *Client) OpenStream() (*quic.Stream, error) {
 }
 
 // AcceptStream accepts a new QUIC stream.
+// The caller controls timeout via the context.
 func (c *Client) AcceptStream(ctx context.Context) (*quic.Stream, error) {
-	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
-	defer cancel()
 	return c.conn.AcceptStream(ctx)
 }
 
@@ -176,8 +175,8 @@ func generateQuicConfig() *quic.Config {
 		HandshakeIdleTimeout:  handshakeTimeout,
 		KeepAlivePeriod:       keepAlivePeriod,
 		MaxIdleTimeout:        maxIdleTimeout,
-		MaxIncomingStreams:    1000,
-		MaxIncomingUniStreams: 1000,
+		MaxIncomingStreams:    2000,
+		MaxIncomingUniStreams: 2000,
 		Allow0RTT:             true,
 	}
 }

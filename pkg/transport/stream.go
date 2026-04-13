@@ -14,7 +14,7 @@ import (
 	"github.com/snakeice/gunnel/pkg/protocol"
 )
 
-const deadlineDefault = 15 * time.Second
+const deadlineDefault = 60 * time.Second
 
 type Stream interface {
 	io.ReadWriteCloser
@@ -153,6 +153,7 @@ func (t *streamClient) Close() error {
 	}
 
 	t.metricsInfo.IsActive = false
+	t.metricsInfo.LastActive = time.Now()
 
 	if err := t.stream.Close(); err != nil {
 		return fmt.Errorf("failed to close streamClient: %w", err)
@@ -278,5 +279,26 @@ func (t *streamClient) CloseWrite() error {
 }
 
 func (t *streamClient) Context() context.Context {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.stream == nil {
+		return context.Background()
+	}
 	return t.stream.Context()
+}
+
+func (t *streamClient) isValid() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.stream != nil
+}
+
+func (t *streamClient) markIdle() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.metricsInfo != nil {
+		t.metricsInfo.IsActive = false
+		t.metricsInfo.LastActive = time.Now()
+	}
 }

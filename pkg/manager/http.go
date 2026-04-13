@@ -4,7 +4,8 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-
+	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
-// ServeHTTP handles an HTTP request and proxies it to the correct backend.
 func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	subdomain := extractSubdomain(req)
 	if subdomain == "gunnel" {
@@ -32,11 +32,78 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err := m.handleProxyFlow(w, req, subdomain, logger); err != nil {
 		logger.WithError(err).Error("Proxy flow failed")
 		status := http.StatusInternalServerError
-		if errors.Is(err, ErrNoConnection) {
+		if errors.Is(err, ErrNoConnection) || errors.Is(err, ErrSubdomainNotFound) {
 			status = http.StatusNotFound
+			if m.honeypot != nil && subdomain != "" {
+				ip := extractClientIP(req)
+				m.honeypot.RecordRequest(req, subdomain)
+
+				if m.honeypot.IsSuspicious(ip) {
+					delay := m.honeypot.GetDelay(ip)
+					if delay > 0 {
+						time.Sleep(delay)
+					}
+
+					body, contentType := m.honeypot.GetFakeResponse(req)
+					w.Header().Set("Content-Type", contentType)
+					w.WriteHeader(http.StatusOK)
+					if _, err := w.Write(body); err != nil {
+						logger.WithError(err).Warn("Failed to write fake response")
+					}
+					return
+				}
+			}
 		}
 		http.Error(w, err.Error(), status)
 	}
+}
+
+func extractClientIP(req *http.Request) string {
+	xff := req.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		parts := splitCSV(xff)
+		if len(parts) > 0 {
+			return trimSpace(parts[0])
+		}
+	}
+
+	xri := req.Header.Get("X-Real-IP")
+	if xri != "" {
+		return trimSpace(xri)
+	}
+
+	host, _, err := net.SplitHostPort(req.RemoteAddr)
+	if err != nil {
+		return req.RemoteAddr
+	}
+	return host
+}
+
+func splitCSV(s string) []string {
+	var result []string
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == ',' {
+			part := trimSpace(s[start:i])
+			if part != "" {
+				result = append(result, part)
+			}
+			start = i + 1
+		}
+	}
+	return result
+}
+
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+		end--
+	}
+	return s[start:end]
 }
 
 func (m *Manager) handleGunnel(w http.ResponseWriter, req *http.Request) {
@@ -50,8 +117,6 @@ func (m *Manager) handleGunnel(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// handleProxyFlow coordinates acquiring a stream, beginning the connection,
-// waiting for readiness, and performing bidirectional proxying.
 func (m *Manager) handleProxyFlow(
 	w http.ResponseWriter,
 	req *http.Request,
@@ -75,7 +140,6 @@ func (m *Manager) handleProxyFlow(
 		"stream_id": stream.ID(),
 	})
 
-	// Send begin connection message
 	beginMsg := &protocol.BeginConnection{Subdomain: subdomain}
 	logger.Debug("Sending begin connection message")
 	if err = stream.Send(beginMsg); err != nil {
@@ -86,10 +150,8 @@ func (m *Manager) handleProxyFlow(
 	readyChan := make(chan struct{})
 	respChan := make(chan error)
 
-	// Reader goroutine: wait only for ConnectionReady, then return.
 	go m.readClientMessagesAndProxy(stream, readyChan, respChan, logger)
 
-	// Wait for readiness or error/timeout
 	select {
 	case <-readyChan:
 		logger.Debug("Client connection ready for proxying")
@@ -103,8 +165,6 @@ func (m *Manager) handleProxyFlow(
 		}
 	}
 
-	// Write the HTTP request to the stream, half-close the write side,
-	// then read the HTTP response back and write it to the client connection.
 	if err := req.Write(stream); err != nil {
 		logger.WithError(err).Error("Failed to write request to stream")
 		return fmt.Errorf("failed to write request to stream: %w", err)
@@ -125,18 +185,21 @@ func (m *Manager) handleProxyFlow(
 		}
 	}()
 
-	if err := resp.Write(w); err != nil {
-		logger.WithError(err).Error("Failed to write response to client")
-		// The response has already been partially sent, so we can't send a
-		// different error. The connection will be closed by the server.
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		logger.WithError(err).Error("Failed to write response body to client")
 		return nil
 	}
 
 	return nil
 }
 
-// readClientMessagesAndProxy waits for ConnectionReady, then signals readiness.
-// Any error before readiness is sent on respChan.
 func (m *Manager) readClientMessagesAndProxy(
 	stream transport.Stream,
 	readyChan chan<- struct{},

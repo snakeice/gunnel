@@ -1,6 +1,7 @@
 root = "."
 testdata_dir = "testdata"
 tmp_dir = "tmp"
+env_files = ["./.env.local-client"]
 
 [build]
   args_bin = [

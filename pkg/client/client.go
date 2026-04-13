@@ -69,15 +69,14 @@ func (c *Client) register() error {
 	}
 
 	for _, backend := range c.config.Backend {
-		if err := c.registryBackend(backend); err != nil {
+		if err := c.registryBackendWithTransport(c.conn, backend); err != nil {
 			c.logger.WithError(err).Error("Failed to register backend")
 			continue
 		}
 	}
 
-	c.logger.Info("All backends registered successfully")
+	c.logger.Info("Backends registered")
 
-	// Only start connection if transport is still valid
 	if c.conn != nil && !c.conn.IsClosed() {
 		connection.New(c.conn).Start()
 	}
@@ -85,9 +84,22 @@ func (c *Client) register() error {
 	return nil
 }
 
-// registerClient creates a new connection to the server.
-func (c *Client) registryBackend(backend *BackendConfig) error {
-	stream := c.conn.Root()
+func (c *Client) registerWithTransport(transp transport.Transport) error {
+	for _, backend := range c.config.Backend {
+		if err := c.registryBackendWithTransport(transp, backend); err != nil {
+			c.logger.WithError(err).Error("Failed to register backend")
+			continue
+		}
+	}
+
+	c.logger.Info("Backends registered")
+	connection.New(transp).Start()
+
+	return nil
+}
+
+func (c *Client) registryBackendWithTransport(transp transport.Transport, backend *BackendConfig) error {
+	stream := transp.Root()
 	reg := protocol.ConnectionRegister{
 		Subdomain: backend.Subdomain,
 		Host:      backend.Host,
@@ -99,13 +111,13 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 	c.logger.Debug("Registering client with server")
 
 	if err := stream.Send(&reg); err != nil {
-		c.disconnect()
+		transp.Close()
 		return fmt.Errorf("failed to send registration message: %w", err)
 	}
 
 	msg, err := stream.Receive()
 	if err != nil {
-		c.disconnect()
+		transp.Close()
 		return fmt.Errorf("failed to receive registration response: %w", err)
 	}
 
@@ -113,12 +125,12 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 		errMsg := protocol.ErrorMessage{}
 		protocol.Unmarshal(&errMsg, msg)
 
-		c.disconnect()
+		transp.Close()
 		return fmt.Errorf("server sent error during registration: %s", errMsg.Message)
 	}
 
 	if msg.Type != protocol.MessageConnectionRegisterResp {
-		c.disconnect()
+		transp.Close()
 		return fmt.Errorf("unexpected response type during registration: %s != %s",
 			protocol.MessageConnectionRegisterResp.String(),
 			msg.Type.String())
@@ -127,7 +139,7 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 	connectionResponse := protocol.ConnectionRegisterResp{}
 	protocol.Unmarshal(&connectionResponse, msg)
 	if !connectionResponse.Success {
-		c.disconnect()
+		transp.Close()
 		return fmt.Errorf("server rejected connection: %s", connectionResponse.Message)
 	}
 
@@ -135,7 +147,7 @@ func (c *Client) registryBackend(backend *BackendConfig) error {
 
 	c.logger.WithFields(logrus.Fields{
 		"subdomain": backend.Subdomain,
-	}).Info("Successfully registered with server")
+	}).Info("Registered with server")
 	return nil
 }
 
@@ -146,93 +158,101 @@ func (c *Client) worker(ctx context.Context) error {
 			c.logger.Info("Stopping connection manager worker")
 			return nil
 		default:
-			if c.conn == nil || c.conn.IsClosed() {
-				c.logger.Warn("Connection is closed, waiting for reconnection")
-				time.Sleep(c.reconnectDelay)
-				continue
-			}
-
-			strm, err := c.conn.AcceptStream(ctx)
-			if err != nil {
-				c.logger.Error("Failed to accept stream from server, closing connection")
-				c.disconnect()
-				continue
-			}
-
-			strmLogger := c.logger.WithFields(logrus.Fields{
-				"client_id": strm.ID(),
-			})
-
-			strmLogger.Debug("Accepted new stream from server")
-
-			go func() {
-				if err := c.handleStream(ctx, strm, strmLogger); err != nil {
-					// Only log actual errors, not expected EOF or context cancellation
-					if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
-						strmLogger.WithError(err).Error("Failed to handle stream")
-					}
-				}
-			}()
 		}
+
+		if c.conn == nil || c.conn.IsClosed() {
+			c.logger.Warn("Connection is closed, waiting for reconnection")
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(c.reconnectDelay):
+				continue
+			}
+		}
+
+		strm, err := c.conn.AcceptStream(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			c.logger.WithError(err).Error("Failed to accept stream from server")
+			c.disconnect()
+			continue
+		}
+
+		strmLogger := c.logger.WithFields(logrus.Fields{
+			"client_id": strm.ID(),
+		})
+
+		strmLogger.Debug("Accepted new stream from server")
+
+		go func() {
+			if err := c.handleStream(ctx, strm, strmLogger); err != nil {
+				if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+					strmLogger.WithError(err).Error("Failed to handle stream")
+				}
+			}
+		}()
 	}
 }
 
-// reconnectLoop handles reconnection attempts.
 func (c *Client) reconnectLoop(ctx context.Context) {
 	attemptCount := 0
+	reconnectTimer := time.NewTimer(0)
+	defer reconnectTimer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			c.logger.Info("Stopping reconnect loop")
 			return
-		default:
+		case <-reconnectTimer.C:
 		}
 
 		if c.conn == nil || c.conn.IsClosed() {
 			attemptCount++
 			exponentialFactor := math.Pow(2, float64(attemptCount-1))
-			maxRetry := time.Duration(300) * time.Second
-			nextRetry := time.Duration(
-				math.Min(float64(c.reconnectDelay)*exponentialFactor, float64(maxRetry)),
-			) * time.Second
+			maxRetry := 300 * time.Second
+			nextRetry := time.Duration(math.Min(
+				float64(c.reconnectDelay)*exponentialFactor,
+				float64(maxRetry),
+			))
 
-			func() {
-				c.mu.Lock()
-				defer c.mu.Unlock()
+			c.mu.Lock()
+			c.logger.Warnf(
+				"No active connections. Reconnecting in %v (attempt %d)",
+				nextRetry, attemptCount,
+			)
 
-				c.logger.Warnf(
-					"No active connections. Reconnecting in %v (attempt %d)",
-					nextRetry, attemptCount,
+			transp, err := transport.New(c.config.ServerAddr)
+			if err != nil {
+				c.mu.Unlock()
+				c.logger.WithError(err).Warnf(
+					"Failed to create transport (attempt %d)",
+					attemptCount,
 				)
+				reconnectTimer.Reset(nextRetry)
+				continue
+			}
 
-				transp, err := transport.New(c.config.ServerAddr)
-				if err != nil {
-					c.logger.WithError(err).Warnf(
-						"Failed to create transport (attempt %d)",
-						attemptCount,
-					)
-					return
-				}
+			// Don't assign c.conn until register succeeds to avoid orphan transports
+			if err := c.registerWithTransport(transp); err != nil {
+				c.logger.WithError(err).Warnf(
+					"Failed to register (attempt %d)",
+					attemptCount,
+				)
+				reconnectTimer.Reset(nextRetry)
+				continue
+			}
 
-				c.conn = transp
+			// Only assign after successful registration
+			c.mu.Lock()
+			c.conn = transp
+			c.mu.Unlock()
 
-				if err := c.register(); err != nil {
-					c.logger.WithError(err).Warnf(
-						"Failed to register (attempt %d)",
-						attemptCount,
-					)
-					return
-				}
-
-				c.logger.Info("Successfully reconnected!")
-				attemptCount = 0
-			}()
-
-			time.Sleep(nextRetry)
-			continue
+			c.logger.Info("Reconnected")
+			attemptCount = 0
 		}
-
-		time.Sleep(c.reconnectDelay)
 	}
 }
 

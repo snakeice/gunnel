@@ -41,8 +41,8 @@ type Connection struct {
 func New(transp transport.Transport, messageHandler ...MessageHandlerFunc) *Connection {
 	conn := &Connection{
 		stream:         transp.Root(),
-		sendChannel:    make(chan protocol.Parsable, 50),
-		receiveChannel: make(chan *protocol.Message, 50),
+		sendChannel:    make(chan protocol.Parsable, 1000),
+		receiveChannel: make(chan *protocol.Message, 1000),
 		transp:         transp,
 		connected:      true,
 		lastActive:     time.Now(),
@@ -51,8 +51,8 @@ func New(transp transport.Transport, messageHandler ...MessageHandlerFunc) *Conn
 			sent, received, missed int64
 		}{last: time.Now()},
 		heartbeatEmitter:  !transp.ImServer(),
-		heartbeatInterval: 5 * time.Second,
-		heartbeatTimeout:  25 * time.Second,
+		heartbeatInterval: 30 * time.Second,
+		heartbeatTimeout:  90 * time.Second,
 		logger: logrus.WithFields(
 			logrus.Fields{
 				"addr": transp.Addr(),
@@ -86,17 +86,25 @@ func (c *Connection) watchReceive(ctx context.Context) {
 			c.logger.Info("Client context done, shutting down")
 			return
 		default:
-			msg, err := c.stream.Receive()
-			if err != nil {
-				c.logger.WithError(err).Errorf("Failed to read message from %s", c.transp.Addr())
-				c.connected = false
-				c.markActive()
-				c.transp.Close()
-				return
-			}
-
-			c.receiveChannel <- msg
 		}
+
+		if c.stream == nil {
+			c.logger.Error("Stream is nil, cannot receive")
+			c.connected = false
+			c.transp.Close()
+			return
+		}
+
+		msg, err := c.stream.Receive()
+		if err != nil {
+			c.logger.WithError(err).Errorf("Failed to read message from %s", c.transp.Addr())
+			c.connected = false
+			c.markActive()
+			c.transp.Close()
+			return
+		}
+
+		c.receiveChannel <- msg
 	}
 }
 
@@ -107,6 +115,13 @@ func (c *Connection) watchSend(ctx context.Context) {
 			c.logger.Info("Client context done, shutting down")
 			return
 		case msg := <-c.sendChannel:
+			if c.stream == nil {
+				c.logger.Error("Stream is nil, cannot send")
+				c.connected = false
+				c.transp.Close()
+				return
+			}
+
 			if err := c.stream.Send(msg); err != nil {
 				c.logger.WithError(err).Errorf("Failed to send message to %s", c.transp.Addr())
 				c.connected = false
@@ -114,8 +129,6 @@ func (c *Connection) watchSend(ctx context.Context) {
 				c.transp.Close()
 				return
 			}
-		default:
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -153,8 +166,6 @@ func (c *Connection) observeConnection(ctx context.Context) {
 			}
 		case msg := <-c.receiveChannel:
 			c.handleMessage(msg)
-		default:
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -210,12 +221,25 @@ func (c *Connection) GetLastActive() time.Time {
 	return c.lastActive
 }
 
-// Connected returns true if the client is connected.
 func (c *Connection) Connected() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.connected
+	if !c.connected {
+		return false
+	}
+
+	if c.transp != nil && c.transp.IsClosed() {
+		c.connected = false
+		return false
+	}
+
+	if c.stream == nil {
+		c.connected = false
+		return false
+	}
+
+	return true
 }
 
 // GetHeartbeatStats returns the current heartbeat statistics.

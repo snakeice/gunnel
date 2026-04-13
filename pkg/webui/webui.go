@@ -15,7 +15,6 @@ import (
 //go:embed templates
 var templates embed.FS
 
-// WebUI handles the web interface for displaying tunnel status and requests.
 type WebUI struct {
 	mngr      *manager.Manager
 	Mux       *http.ServeMux
@@ -26,7 +25,6 @@ type WebUI struct {
 	streams   []map[string]any
 }
 
-// NewWebUI creates a new WebUI instance.
 func NewWebUI(router *manager.Manager) *WebUI {
 	webui := &WebUI{
 		mngr:      router,
@@ -41,6 +39,7 @@ func NewWebUI(router *manager.Manager) *WebUI {
 	mux.HandleFunc("/api/stats", webui.handleStats)
 	mux.HandleFunc("/api/clients", webui.handleClients)
 	mux.HandleFunc("/api/streams", webui.handleStreams)
+	mux.HandleFunc("/api/honeypot", webui.handleHoneypot)
 
 	webui.Mux = mux
 
@@ -59,7 +58,6 @@ func (ui *WebUI) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	ui.Mux.ServeHTTP(w, r)
 }
 
-// handleIndex serves the main web interface.
 func (ui *WebUI) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	content, err := templates.ReadFile("templates/index.html")
 	if err != nil {
@@ -73,7 +71,6 @@ func (ui *WebUI) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// handleStats serves the stats API endpoint.
 func (ui *WebUI) handleStats(w http.ResponseWriter, _ *http.Request) {
 	ui.mu.RLock()
 	defer ui.mu.RUnlock()
@@ -89,7 +86,6 @@ func (ui *WebUI) handleStats(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// handleClients serves the clients API endpoint.
 func (ui *WebUI) handleClients(w http.ResponseWriter, r *http.Request) {
 	ui.mu.RLock()
 	defer ui.mu.RUnlock()
@@ -101,7 +97,6 @@ func (ui *WebUI) handleClients(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleStreams serves the streams API endpoint.
 func (ui *WebUI) handleStreams(w http.ResponseWriter, _ *http.Request) {
 	ui.mu.RLock()
 	defer ui.mu.RUnlock()
@@ -113,7 +108,20 @@ func (ui *WebUI) handleStreams(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// UpdateStats updates the stats with current information.
+func (ui *WebUI) handleHoneypot(w http.ResponseWriter, _ *http.Request) {
+	hp := ui.mngr.Honeypot()
+	if hp == nil {
+		http.Error(w, "Honeypot not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(hp.GetSuspiciousIPs()); err != nil {
+		http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (ui *WebUI) UpdateStats() {
 	ui.mu.Lock()
 	defer ui.mu.Unlock()
@@ -121,9 +129,13 @@ func (ui *WebUI) UpdateStats() {
 	const maxInactive = 5 * time.Minute
 	const maxStreams = 15
 
+	removed := metrics.CleanupOldStreams(10 * time.Minute)
+	if removed > 0 {
+		ui.stats["cleaned_streams"] = removed
+	}
+
 	ui.clients = make([]map[string]any, 0)
 
-	// Update streams
 	ui.streams = make([]map[string]any, 0)
 	for _, stream := range metrics.GetActiveStreams() {
 		ui.streams = append(ui.streams, map[string]any{
@@ -157,7 +169,6 @@ func (ui *WebUI) UpdateStats() {
 		}
 	}
 
-	// Update clients
 	ui.mngr.ForEachClient(func(subdomain string, info *connection.Connection) {
 		ui.clients = append(ui.clients, map[string]any{
 			"subdomain":   subdomain,
