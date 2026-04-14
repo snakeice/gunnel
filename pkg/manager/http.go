@@ -30,31 +30,54 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	logger.Infof("%s %s", req.Method, req.URL)
 
 	if err := m.handleProxyFlow(w, req, subdomain, logger); err != nil {
-		logger.WithError(err).Error("Proxy flow failed")
-		status := http.StatusInternalServerError
-		if errors.Is(err, ErrNoConnection) || errors.Is(err, ErrSubdomainNotFound) {
-			status = http.StatusNotFound
-			if m.honeypot != nil && subdomain != "" {
-				ip := extractClientIP(req)
-				m.honeypot.RecordRequest(req, subdomain)
+		m.handleProxyError(w, req, subdomain, logger, err)
+	}
+}
 
-				if m.honeypot.IsSuspicious(ip) {
-					delay := m.honeypot.GetDelay(ip)
-					if delay > 0 {
-						time.Sleep(delay)
-					}
+func (m *Manager) handleProxyError(
+	w http.ResponseWriter,
+	req *http.Request,
+	subdomain string,
+	logger *logrus.Entry,
+	err error,
+) {
+	logger.WithError(err).Error("Proxy flow failed")
+	status := http.StatusInternalServerError
 
-					body, contentType := m.honeypot.GetFakeResponse(req)
-					w.Header().Set("Content-Type", contentType)
-					w.WriteHeader(http.StatusOK)
-					if _, err := w.Write(body); err != nil {
-						logger.WithError(err).Warn("Failed to write fake response")
-					}
-					return
-				}
-			}
+	if errors.Is(err, ErrNoConnection) || errors.Is(err, ErrSubdomainNotFound) {
+		status = http.StatusNotFound
+		if m.honeypot != nil && subdomain != "" {
+			m.serveHoneypotResponse(w, req, subdomain, logger)
+			return
 		}
-		http.Error(w, err.Error(), status)
+	}
+	http.Error(w, err.Error(), status)
+}
+
+func (m *Manager) serveHoneypotResponse(
+	w http.ResponseWriter,
+	req *http.Request,
+	subdomain string,
+	logger *logrus.Entry,
+) {
+	ip := extractClientIP(req)
+	m.honeypot.RecordRequest(req, subdomain)
+
+	if m.honeypot.IsSuspicious(ip) {
+		delay := m.honeypot.GetDelay(ip)
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+
+		body, contentType := m.honeypot.GetFakeResponse(req)
+		w.Header().Set("Content-Type", contentType)
+		w.WriteHeader(http.StatusOK)
+
+		if _, writeErr := w.Write(body); writeErr != nil { //nolint:gosec // honeypot
+			logger.WithError(writeErr).Warn("Failed to write fake response")
+		}
+
+		return
 	}
 }
 

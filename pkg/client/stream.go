@@ -44,7 +44,6 @@ func (c *Client) handleStream(
 		}
 
 		logger.Debug("Request processed, closing stream")
-		return nil
 	}
 }
 
@@ -81,7 +80,7 @@ func (c *Client) dispatchMessage(
 	logger *logrus.Entry,
 	msg *protocol.Message,
 ) error {
-	switch msg.Type { //nolint:exhaustive
+	switch msg.Type { //nolint:exhaustive // not all message types need handling here
 	case protocol.MessageBeginStream:
 		return c.handleBeginStream(strm, logger, msg)
 

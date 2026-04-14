@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"net/http"
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec // pprof is intentionally exposed for debugging when enabled
 
 	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/client"
@@ -39,7 +39,12 @@ func runClient(configFile, pprofAddr string) error {
 	if pprofAddr != "" {
 		go func() {
 			logrus.Infof("Starting pprof server on %s", pprofAddr)
-			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			server := &http.Server{
+				Addr:              pprofAddr,
+				Handler:           nil,
+				ReadHeaderTimeout: 5 * 2,
+			}
+			if err := server.ListenAndServe(); err != nil {
 				logrus.WithError(err).Error("pprof server failed")
 			}
 		}()

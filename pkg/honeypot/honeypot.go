@@ -1,7 +1,8 @@
 package honeypot
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	"net"
 	"net/http"
 	"sync"
@@ -183,8 +184,12 @@ func (h *Honeypot) GetFakeResponse(req *http.Request) ([]byte, string) {
 	userAgent := req.UserAgent()
 
 	responses := h.getFakeResponses(path, userAgent)
-	idx := rand.Intn(len(responses))
-	return []byte(responses[idx].body), responses[idx].contentType
+	n := big.NewInt(int64(len(responses)))
+	idx, err := rand.Int(rand.Reader, n)
+	if err != nil {
+		return []byte(responses[0].body), responses[0].contentType
+	}
+	return []byte(responses[idx.Int64()].body), responses[idx.Int64()].contentType
 }
 
 type fakeResponse struct {
@@ -199,7 +204,8 @@ func (h *Honeypot) getFakeResponses(path, userAgent string) []fakeResponse {
 	if contains(path, "api") || contains(path, "v1") || contains(path, "graphql") {
 		return h.getAPIFakes()
 	}
-	if contains(userAgent, "sqlmap") || contains(userAgent, "nikto") || contains(userAgent, "nmap") {
+	if contains(userAgent, "sqlmap") || contains(userAgent, "nikto") ||
+		contains(userAgent, "nmap") {
 		return h.getScannerFakes()
 	}
 	return h.getGenericFakes()
@@ -290,11 +296,14 @@ func (h *Honeypot) getGenericFakes() []fakeResponse {
 	return []fakeResponse{
 		{
 			contentType: "text/html",
-			body:        `<!DOCTYPE html><html><head><title>Loading...</title></head><body><script>setTimeout(function(){location.reload()},5000)</script><h1>Please wait...</h1></body></html>`,
+			body: `<!DOCTYPE html><html><head><title>Loading...</title></head>` +
+				`<body><script>setTimeout(function(){location.reload()},5000)</script>` +
+				`<h1>Please wait...</h1></body></html>`,
 		},
 		{
 			contentType: "text/html",
-			body:        `<!DOCTYPE html><html><body><h1>404 Not Found</h1><p>The requested URL was not found on this server.</p></body></html>`,
+			body: `<!DOCTYPE html><html><body><h1>404 Not Found</h1>` +
+				`<p>The requested URL was not found on this server.</p></body></html>`,
 		},
 		{
 			contentType: "application/json",
@@ -312,7 +321,7 @@ func (h *Honeypot) GetStats(ip string) (*IPStats, bool) {
 		return nil, false
 	}
 
-	copy := &IPStats{
+	statsCopy := &IPStats{
 		FirstSeen:       stats.FirstSeen,
 		LastSeen:        stats.LastSeen,
 		RequestCount:    stats.RequestCount,
@@ -320,11 +329,11 @@ func (h *Honeypot) GetStats(ip string) (*IPStats, bool) {
 		Requests:        make([]SuspiciousRequest, len(stats.Requests)),
 	}
 	for k, v := range stats.SubdomainsTried {
-		copy.SubdomainsTried[k] = v
+		statsCopy.SubdomainsTried[k] = v
 	}
-	copy.Requests = append(copy.Requests, stats.Requests...)
+	statsCopy.Requests = append(statsCopy.Requests, stats.Requests...)
 
-	return copy, true
+	return statsCopy, true
 }
 
 func (h *Honeypot) GetSuspiciousIPs() map[string]*IPStats {

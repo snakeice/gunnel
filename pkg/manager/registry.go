@@ -83,10 +83,7 @@ func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Mess
 	}
 
 	if canAccept {
-		if err := m.addClient(subdomain, client); err != nil {
-			reason = "failed to add client: " + err.Error()
-			canAccept = false
-		}
+		m.addClient(subdomain, client)
 	}
 
 	regRespMsg := protocol.ConnectionRegisterResp{

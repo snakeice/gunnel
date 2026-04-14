@@ -83,8 +83,8 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		logrus.Info("Server context done, shutting down http server")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer shutdownCancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			logrus.WithError(err).Warn("http server shutdown error")
 		}
@@ -229,8 +229,8 @@ func (s *Server) startPprofIfEnabled(ctx context.Context) {
 
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer shutdownCancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logrus.WithError(err).Warn("pprof server shutdown error")
 		}

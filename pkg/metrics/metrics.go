@@ -25,7 +25,7 @@ type streamMetrics struct {
 	totalOut atomic.Int64
 }
 
-var metricsCollector = &streamMetrics{
+var metricsCollector = &streamMetrics{ //nolint:gochecknoglobals // singleton pattern for metrics collection
 	streams: make([]*StreamInfo, 0),
 }
 

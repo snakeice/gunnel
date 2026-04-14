@@ -60,7 +60,15 @@ func (m *Manager) IsAuthorized(token string) bool {
 
 func (m *Manager) ForEachClient(fn func(subdomain string, info *connection.Connection)) {
 	m.subdomains.Range(func(key, value any) bool {
-		fn(key.(string), value.(*connection.Connection))
+		subdomain, ok := key.(string)
+		if !ok {
+			return true
+		}
+		conn, ok := value.(*connection.Connection)
+		if !ok {
+			return true
+		}
+		fn(subdomain, conn)
 		return true
 	})
 }
@@ -88,7 +96,11 @@ func (m *Manager) getClient(subdomain string) (*connection.Connection, bool) {
 	if !ok {
 		return nil, false
 	}
-	return value.(*connection.Connection), true
+	conn, ok := value.(*connection.Connection)
+	if !ok {
+		return nil, false
+	}
+	return conn, true
 }
 
 func (m *Manager) Release(subdomain string, stream transport.Stream) {
@@ -97,28 +109,19 @@ func (m *Manager) Release(subdomain string, stream transport.Stream) {
 	}
 }
 
-func (m *Manager) addClient(subdomain string, client *connection.Connection) error {
+func (m *Manager) addClient(subdomain string, client *connection.Connection) {
 	if oldClient, exists := m.getClient(subdomain); exists {
 		if !oldClient.Connected() {
 			m.subdomains.Store(subdomain, client)
-			return nil
+			return
 		}
 		if oldClient != client {
-			logrus.WithField("subdomain", subdomain).Error("Client already exists, removing old client")
+			logrus.WithField("subdomain", subdomain).
+				Error("Client already exists, removing old client")
 			m.subdomains.Store(subdomain, client)
 		}
-		return nil
+		return
 	}
 
 	m.subdomains.Store(subdomain, client)
-	return nil
-}
-
-func (m *Manager) removeClient(client *connection.Connection) {
-	m.subdomains.Range(func(key, value any) bool {
-		if value.(*connection.Connection) == client {
-			m.subdomains.Delete(key)
-		}
-		return true
-	})
 }

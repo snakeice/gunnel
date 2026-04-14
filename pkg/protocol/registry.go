@@ -51,11 +51,12 @@ func (c *ConnectionRegister) Marshal() *Message {
 	payload := make([]byte, 0)
 
 	// Subdomain
-	payload = append(payload, byte(len(c.Subdomain)))
+	payload = append(payload,
+		byte(len(c.Subdomain))) //nolint:gosec // subdomain length is controlled
 	payload = append(payload, []byte(c.Subdomain)...)
 
 	// Host
-	payload = append(payload, byte(len(c.Host)))
+	payload = append(payload, byte(len(c.Host))) //nolint:gosec // host length is controlled
 	payload = append(payload, []byte(c.Host)...)
 
 	// Port
@@ -65,7 +66,7 @@ func (c *ConnectionRegister) Marshal() *Message {
 	payload = append(payload, c.Protocol.Byte())
 
 	// Optional token at the end for forward/backward-compatibility
-	payload = append(payload, byte(len(c.Token)))
+	payload = append(payload, byte(len(c.Token))) //nolint:gosec // token length is controlled
 	payload = append(payload, []byte(c.Token)...)
 
 	return &Message{
@@ -104,7 +105,7 @@ func (c *ConnectionRegisterResp) Marshal() *Message {
 	offset++
 
 	// Subdomain
-	payload[offset] = byte(len(c.Subdomain))
+	payload[offset] = byte(len(c.Subdomain)) //nolint:gosec // subdomain length is controlled
 	offset++
 	copy(payload[offset:], c.Subdomain)
 	offset += len(c.Subdomain)

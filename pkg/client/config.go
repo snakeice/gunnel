@@ -36,10 +36,8 @@ func (b *BackendConfig) IsPathAllowed(path string) bool {
 			if strings.HasPrefix(path, prefix) {
 				return true
 			}
-		} else {
-			if path == allowed {
-				return true
-			}
+		} else if path == allowed {
+			return true
 		}
 	}
 

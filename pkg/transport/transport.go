@@ -308,20 +308,6 @@ func (t *connectionTransport) removeStreams(indices []int) {
 	}
 }
 
-func (t *connectionTransport) cleanupInactiveStreams(maxInactive time.Duration) {
-	timer := time.NewTicker(maxInactive)
-	defer timer.Stop()
-
-	for range timer.C {
-		if len(t.streams) == 0 {
-			continue
-		}
-
-		streamsToRemove := t.findInactiveStreamIDs(maxInactive)
-		t.removeStreams(streamsToRemove)
-	}
-}
-
 func (t *connectionTransport) cleanupClosedStreams() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -330,11 +316,11 @@ func (t *connectionTransport) cleanupClosedStreams() {
 	for _, stream := range t.streams {
 		if stream.metricsInfo.IsActive {
 			active = append(active, stream)
-		} else {
-			if stream.stream != nil {
-				stream.stream.Close()
-				stream.stream = nil
+		} else if stream.stream != nil {
+			if err := stream.stream.Close(); err != nil {
+				logrus.WithError(err).Warn("Failed to close stream")
 			}
+			stream.stream = nil
 		}
 	}
 	t.streams = active
@@ -385,13 +371,17 @@ drain:
 
 	for _, sc := range valid {
 		if !sc.isValid() {
-			sc.Close()
+			if err := sc.Close(); err != nil {
+				logrus.WithError(err).Warn("Failed to close stream in pool cleanup")
+			}
 			continue
 		}
 		select {
 		case t.pool <- sc:
 		default:
-			sc.Close()
+			if err := sc.Close(); err != nil {
+				logrus.WithError(err).Warn("Failed to close stream in pool cleanup")
+			}
 		}
 	}
 }

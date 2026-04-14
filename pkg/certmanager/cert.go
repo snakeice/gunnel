@@ -3,6 +3,7 @@ package certmanager
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net/url"
 
 	"github.com/caddyserver/certmagic"
@@ -36,7 +37,7 @@ func GetTLSConfigWithLetsEncrypt(req *CertReqInfo) (*tls.Config, error) {
 	if !isValidDomain(domain) {
 		logrus.WithField("domain", domain).
 			Warn("Invalid domain, skipping certificate generation")
-		return nil, nil
+		return nil, errors.New("invalid domain")
 	}
 
 	certmagic.DefaultACME.Agreed = true

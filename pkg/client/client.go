@@ -84,7 +84,7 @@ func (c *Client) register() error {
 	return nil
 }
 
-func (c *Client) registerWithTransport(transp transport.Transport) error {
+func (c *Client) registerWithTransport(transp transport.Transport) {
 	for _, backend := range c.config.Backend {
 		if err := c.registryBackendWithTransport(transp, backend); err != nil {
 			c.logger.WithError(err).Error("Failed to register backend")
@@ -94,11 +94,12 @@ func (c *Client) registerWithTransport(transp transport.Transport) error {
 
 	c.logger.Info("Backends registered")
 	connection.New(transp).Start()
-
-	return nil
 }
 
-func (c *Client) registryBackendWithTransport(transp transport.Transport, backend *BackendConfig) error {
+func (c *Client) registryBackendWithTransport(
+	transp transport.Transport,
+	backend *BackendConfig,
+) error {
 	stream := transp.Root()
 	reg := protocol.ConnectionRegister{
 		Subdomain: backend.Subdomain,
@@ -160,14 +161,8 @@ func (c *Client) worker(ctx context.Context) error {
 		default:
 		}
 
-		if c.conn == nil || c.conn.IsClosed() {
-			c.logger.Warn("Connection is closed, waiting for reconnection")
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(c.reconnectDelay):
-				continue
-			}
+		if c.shouldWaitForReconnection(ctx) {
+			continue
 		}
 
 		strm, err := c.conn.AcceptStream(ctx)
@@ -180,20 +175,37 @@ func (c *Client) worker(ctx context.Context) error {
 			continue
 		}
 
-		strmLogger := c.logger.WithFields(logrus.Fields{
-			"client_id": strm.ID(),
-		})
-
-		strmLogger.Debug("Accepted new stream from server")
-
-		go func() {
-			if err := c.handleStream(ctx, strm, strmLogger); err != nil {
-				if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
-					strmLogger.WithError(err).Error("Failed to handle stream")
-				}
-			}
-		}()
+		c.handleAcceptedStream(ctx, strm)
 	}
+}
+
+func (c *Client) shouldWaitForReconnection(ctx context.Context) bool {
+	if c.conn == nil || c.conn.IsClosed() {
+		c.logger.Warn("Connection is closed, waiting for reconnection")
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(c.reconnectDelay):
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Client) handleAcceptedStream(ctx context.Context, strm transport.Stream) {
+	strmLogger := c.logger.WithFields(logrus.Fields{
+		"client_id": strm.ID(),
+	})
+
+	strmLogger.Debug("Accepted new stream from server")
+
+	go func() {
+		if err := c.handleStream(ctx, strm, strmLogger); err != nil {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+				strmLogger.WithError(err).Error("Failed to handle stream")
+			}
+		}
+	}()
 }
 
 func (c *Client) reconnectLoop(ctx context.Context) {
@@ -236,16 +248,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			}
 
 			// Don't assign c.conn until register succeeds to avoid orphan transports
-			if err := c.registerWithTransport(transp); err != nil {
-				c.logger.WithError(err).Warnf(
-					"Failed to register (attempt %d)",
-					attemptCount,
-				)
-				reconnectTimer.Reset(nextRetry)
-				continue
-			}
-
-			// Only assign after successful registration
+			c.registerWithTransport(transp)
 			c.mu.Lock()
 			c.conn = transp
 			c.mu.Unlock()

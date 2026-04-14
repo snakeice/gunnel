@@ -32,7 +32,7 @@ type Parsable interface {
 func (m *Message) Write(w io.Writer) (int, error) {
 	// Write header
 	header := make([]byte, HeaderSize)
-	header[0] = byte(m.Type)
+	header[0] = byte(m.Type) //nolint:gosec // message type is always within byte range
 	binary.BigEndian.PutUint32(header[1:], m.Length)
 
 	data := make([]byte, HeaderSize+len(m.Payload))
@@ -98,7 +98,7 @@ type ConnectionReady struct {
 
 func (c *CloseConnection) Marshal() *Message {
 	payload := make([]byte, 0)
-	payload = append(payload, byte(len(c.Reason)))
+	payload = append(payload, byte(len(c.Reason))) //nolint:gosec // reason length is controlled
 	payload = append(payload, []byte(c.Reason)...)
 
 	return &Message{
@@ -110,7 +110,7 @@ func (c *CloseConnection) Marshal() *Message {
 
 func (h *Heartbeat) Marshal() *Message {
 	payload := make([]byte, 0)
-	payload = append(payload, byte(len(h.Message)))
+	payload = append(payload, byte(len(h.Message))) //nolint:gosec // message length is controlled
 	payload = append(payload, []byte(h.Message)...)
 
 	return &Message{
@@ -122,7 +122,7 @@ func (h *Heartbeat) Marshal() *Message {
 
 func (e *ErrorMessage) Marshal() *Message {
 	payload := make([]byte, 0)
-	payload = append(payload, byte(len(e.Message)))
+	payload = append(payload, byte(len(e.Message))) //nolint:gosec // message length is controlled
 	payload = append(payload, []byte(e.Message)...)
 
 	return &Message{
@@ -263,6 +263,6 @@ func lenUint32[T lenSupported](b T) uint32 {
 	if uint64(l) > math.MaxUint32 {
 		panic("integer overflow: value exceeds uint32 range")
 	}
-	//nolint:gosec // G115: We've already validated the value is within uint32 range
+
 	return uint32(l)
 }
