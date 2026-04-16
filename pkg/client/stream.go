@@ -64,8 +64,8 @@ func (c *Client) waitOrReceiveAndHandle(
 
 		// EOF is expected when stream ends normally
 		if errors.Is(err, io.EOF) {
-			logger.Trace("Stream ended normally")
-			return nil
+			logger.Debug("Stream ended normally")
+			return err // Return EOF to exit the loop and close the stream
 		}
 		return fmt.Errorf("failed to read message from server, closing connection: %w", err)
 	}
@@ -138,8 +138,7 @@ func (c *Client) handleBeginStream(
 		return fmt.Errorf("failed to send connection ready message: %w", err)
 	}
 
-	reader := bufio.NewReader(strm)
-	req, err := http.ReadRequest(reader)
+	req, err := http.ReadRequest(strm.BufferedReader())
 	if err != nil {
 		return fmt.Errorf("failed to read request from stream: %w", err)
 	}

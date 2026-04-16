@@ -20,6 +20,7 @@ import (
 type Client struct {
 	config         *Config
 	conn           transport.Transport
+	connWrapper    *connection.Connection
 	mu             sync.Mutex
 	reconnectDelay time.Duration
 	token          string
@@ -78,7 +79,8 @@ func (c *Client) register() error {
 	c.logger.Info("Backends registered")
 
 	if c.conn != nil && !c.conn.IsClosed() {
-		connection.New(c.conn).Start()
+		c.connWrapper = connection.New(c.conn)
+		c.connWrapper.Start()
 	}
 
 	return nil
@@ -93,7 +95,11 @@ func (c *Client) registerWithTransport(transp transport.Transport) {
 	}
 
 	c.logger.Info("Backends registered")
-	connection.New(transp).Start()
+	if c.connWrapper != nil {
+		c.connWrapper.Close()
+	}
+	c.connWrapper = connection.New(transp)
+	c.connWrapper.Start()
 }
 
 func (c *Client) registryBackendWithTransport(
@@ -268,6 +274,10 @@ func (c *Client) Stop() {
 func (c *Client) disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.connWrapper != nil {
+		c.connWrapper.Close()
+		c.connWrapper = nil
+	}
 	if c.conn == nil {
 		return
 	}

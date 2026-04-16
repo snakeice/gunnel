@@ -117,11 +117,17 @@ func (m *Manager) addClient(subdomain string, client *connection.Connection) {
 		}
 		if oldClient != client {
 			logrus.WithField("subdomain", subdomain).
-				Error("Client already exists, removing old client")
+				Info("Replacing existing client with new connection")
+			oldClient.Close()
 			m.subdomains.Store(subdomain, client)
 		}
 		return
 	}
 
 	m.subdomains.Store(subdomain, client)
+}
+
+func (m *Manager) removeClient(subdomain string) {
+	m.subdomains.Delete(subdomain)
+	logrus.WithField("subdomain", subdomain).Debug("Removed client from registry")
 }

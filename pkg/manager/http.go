@@ -1,7 +1,6 @@
 package manager
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -172,16 +171,20 @@ func (m *Manager) handleProxyFlow(
 
 	readyChan := make(chan struct{})
 	respChan := make(chan error)
+	doneChan := make(chan struct{})
 
-	go m.readClientMessagesAndProxy(stream, readyChan, respChan, logger)
+	go m.readClientMessagesAndProxy(stream, readyChan, respChan, doneChan, logger)
 
 	select {
 	case <-readyChan:
 		logger.Debug("Client connection ready for proxying")
+		<-doneChan
 	case <-time.After(streamAcceptTimeout):
 		logger.Error("Client connection not ready in time")
+		<-doneChan
 		return errors.New("client connection not ready in time")
 	case err := <-respChan:
+		<-doneChan
 		if err != nil {
 			logger.WithError(err).Error("Failed before proxy start")
 			return fmt.Errorf("failed before proxy start: %w", err)
@@ -193,11 +196,7 @@ func (m *Manager) handleProxyFlow(
 		return fmt.Errorf("failed to write request to stream: %w", err)
 	}
 
-	if err := stream.CloseWrite(); err != nil {
-		logger.WithError(err).Warn("Failed to half-close stream write side")
-	}
-
-	resp, err := http.ReadResponse(bufio.NewReader(stream), req)
+	resp, err := http.ReadResponse(stream.BufferedReader(), req)
 	if err != nil {
 		logger.WithError(err).Error("Failed to read response from stream")
 		return fmt.Errorf("failed to read response: %w", err)
@@ -227,8 +226,11 @@ func (m *Manager) readClientMessagesAndProxy(
 	stream transport.Stream,
 	readyChan chan<- struct{},
 	respChan chan<- error,
+	doneChan chan<- struct{},
 	logger *logrus.Entry,
 ) {
+	defer close(doneChan)
+
 	for {
 		msg, err := stream.Receive()
 		if err != nil {

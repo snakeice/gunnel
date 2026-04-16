@@ -36,6 +36,9 @@ type Connection struct {
 	}
 
 	logger *logrus.Entry
+
+	// closed signals all goroutines to stop
+	closed chan struct{}
 }
 
 func New(transp transport.Transport, messageHandler ...MessageHandlerFunc) *Connection {
@@ -46,6 +49,7 @@ func New(transp transport.Transport, messageHandler ...MessageHandlerFunc) *Conn
 		transp:         transp,
 		connected:      true,
 		lastActive:     time.Now(),
+		closed:         make(chan struct{}),
 		heartbeatStats: struct {
 			last                   time.Time
 			sent, received, missed int64
@@ -82,6 +86,8 @@ func (c *Connection) Start() {
 func (c *Connection) watchReceive(ctx context.Context) {
 	for {
 		select {
+		case <-c.closed:
+			return
 		case <-ctx.Done():
 			c.logger.Info("Client context done, shutting down")
 			return
@@ -104,13 +110,21 @@ func (c *Connection) watchReceive(ctx context.Context) {
 			return
 		}
 
-		c.receiveChannel <- msg
+		select {
+		case c.receiveChannel <- msg:
+		case <-c.closed:
+			return
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
 func (c *Connection) watchSend(ctx context.Context) {
 	for {
 		select {
+		case <-c.closed:
+			return
 		case <-ctx.Done():
 			c.logger.Info("Client context done, shutting down")
 			return
@@ -142,6 +156,9 @@ func (c *Connection) observeConnection(ctx context.Context) {
 
 	for {
 		select {
+		case <-c.closed:
+			c.logger.Info("Connection closed, stopping heartbeat observer")
+			return
 		case <-ctx.Done():
 			c.logger.Info("Heartbeat context done, shutting down")
 			c.transp.Close()
@@ -270,4 +287,28 @@ func (c *Connection) markActive() {
 	defer c.mu.Unlock()
 
 	c.lastActive = time.Now()
+}
+
+func (c *Connection) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed == nil {
+		return
+	}
+
+	select {
+	case <-c.closed:
+		return
+	default:
+	}
+
+	close(c.closed)
+	c.connected = false
+
+	if c.transp != nil {
+		c.transp.Close()
+	}
+
+	c.logger.Debug("Connection closed")
 }

@@ -10,13 +10,23 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
+type registrationResult struct {
+	subdomain string
+	success   bool
+}
+
 // HandleConnection handles a new connection.
 func (m *Manager) HandleConnection(transp transport.Transport) {
-	client := connection.New(transp, m.HandleStream)
+	registrationChan := make(chan registrationResult, 1)
+	client := connection.New(transp, func(c *connection.Connection, msg *protocol.Message) error {
+		return m.handleStreamWithRegistration(c, msg, registrationChan)
+	})
 	client.Start()
 
 	streamChan := make(chan transport.Stream)
 	go m.acceptStreams(transp, streamChan)
+
+	var registeredSubdomain string
 
 	for {
 		select {
@@ -25,8 +35,16 @@ func (m *Manager) HandleConnection(transp transport.Transport) {
 				"stream_id": stream.ID(),
 				"addr":      transp.Addr(),
 			}).Debug("Stream received but no handler assigned (expected - handled by connection)")
+		case reg := <-registrationChan:
+			if reg.success {
+				registeredSubdomain = reg.subdomain
+			}
 		case <-transp.Root().Context().Done():
 			logrus.Info("Transport context done, stopping stream handling")
+			client.Close()
+			if registeredSubdomain != "" {
+				m.removeClient(registeredSubdomain)
+			}
 			return
 		}
 	}
@@ -57,7 +75,7 @@ func (m *Manager) acceptStreams(transp transport.Transport, streamChan chan tran
 	}
 }
 
-func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Message) error {
+func (m *Manager) handleStreamWithRegistration(client *connection.Connection, msg *protocol.Message, registrationChan chan<- registrationResult) error {
 	regMsg := protocol.ConnectionRegister{}
 	protocol.Unmarshal(&regMsg, msg)
 
@@ -99,5 +117,14 @@ func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Mess
 		"reason":    reason,
 	}).Info("Client registration result")
 
+	select {
+	case registrationChan <- registrationResult{subdomain: subdomain, success: canAccept}:
+	default:
+	}
+
 	return nil
+}
+
+func (m *Manager) HandleStream(client *connection.Connection, msg *protocol.Message) error {
+	return m.handleStreamWithRegistration(client, msg, nil)
 }

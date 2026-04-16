@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -29,6 +30,7 @@ type Stream interface {
 	Write(p []byte) (n int, err error)
 	CloseWrite() error
 	Context() context.Context
+	BufferedReader() *bufio.Reader
 }
 
 // Transport represents a transport connection.
@@ -36,6 +38,7 @@ type streamClient struct {
 	id          string
 	stream      *quic.Stream
 	metricsInfo *metrics.StreamInfo
+	reader      *bufio.Reader
 
 	mu sync.RWMutex
 }
@@ -55,6 +58,7 @@ func newStreamHandler(stream *quic.Stream) *streamClient {
 	strm := &streamClient{
 		stream: stream,
 		id:     GenerateID(stream.StreamID()),
+		reader: bufio.NewReader(stream),
 	}
 
 	strm.watchClose()
@@ -96,6 +100,13 @@ func (t *streamClient) ID() string {
 }
 
 func (t *streamClient) Send(msg protocol.Parsable) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.stream == nil {
+		return errors.New("stream is closed")
+	}
+
 	streamPayload := msg.Marshal()
 
 	n, err := streamPayload.Write(t)
@@ -115,7 +126,22 @@ func (t *streamClient) Send(msg protocol.Parsable) error {
 }
 
 func (t *streamClient) Receive() (*protocol.Message, error) {
-	n, msg, err := protocol.ReadMessage(t.stream)
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	if t.stream == nil {
+		return nil, errors.New("stream is closed")
+	}
+
+	if err := t.stream.SetReadDeadline(time.Now().Add(deadlineDefault)); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"error":     err,
+			"stream_id": t.ID(),
+		}).Error("Failed to set read deadline")
+		return nil, err
+	}
+
+	n, msg, err := protocol.ReadMessage(t.reader)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			logrus.WithFields(logrus.Fields{
@@ -142,6 +168,9 @@ func (t *streamClient) Receive() (*protocol.Message, error) {
 }
 
 func (t *streamClient) Close() error {
+	if t == nil {
+		return nil
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -183,7 +212,7 @@ func (t *streamClient) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	n, err := t.stream.Read(p)
+	n, err := t.reader.Read(p)
 
 	t.metricsInfo.UpdateIn(n)
 	if err != nil {
@@ -289,16 +318,35 @@ func (t *streamClient) Context() context.Context {
 }
 
 func (t *streamClient) isValid() bool {
+	if t == nil {
+		return false
+	}
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.stream != nil
+	if t.stream == nil {
+		return false
+	}
+	ctx := t.stream.Context()
+	return ctx != nil && ctx.Err() == nil
 }
 
 func (t *streamClient) markIdle() {
+	if t == nil {
+		return
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.metricsInfo != nil {
 		t.metricsInfo.IsActive = false
 		t.metricsInfo.LastActive = time.Now()
 	}
+}
+
+func (t *streamClient) BufferedReader() *bufio.Reader {
+	if t == nil {
+		return nil
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.reader
 }

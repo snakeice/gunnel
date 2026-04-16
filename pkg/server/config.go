@@ -14,18 +14,27 @@ import (
 // Each backend configuration includes the host, port, subdomain, and protocol.
 // The server address is the address of the gunnel server.
 type Config struct {
-	// Domain base for HTTP routing (e.g., example.com)
-	Domain string `yaml:"domain"`
-	// Optional shared token required from clients for registration/auth
-	Token      string      `yaml:"token"`
-	ServerPort int         `yaml:"server_port"`
-	QuicPort   int         `yaml:"quic_port"`
-	Cert       *CertConfig `yaml:"cert"`
+	Domain     string            `yaml:"domain"`
+	Token      string            `yaml:"token"`
+	ServerPort int               `yaml:"server_port"`
+	QuicPort   int               `yaml:"quic_port"`
+	Cert       *CertConfig       `yaml:"cert"`
+	Limits     *ConnectionLimits `yaml:"limits"`
 }
 
 type CertConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Email   string `yaml:"email"`
+}
+
+// ConnectionLimits holds connection limiting configuration.
+type ConnectionLimits struct {
+	// MaxConnections is the global maximum number of concurrent connections (0 = unlimited)
+	MaxConnections int `yaml:"max_connections"`
+	// MaxConnectionsPerIP is the maximum connections per IP address (0 = unlimited)
+	MaxConnectionsPerIP int `yaml:"max_connections_per_ip"`
+	// ConnectionRateLimit is the max new connections per minute per IP (0 = unlimited)
+	ConnectionRateLimit int `yaml:"connection_rate_limit"`
 }
 
 func DefaultConfig() *Config {
@@ -37,6 +46,11 @@ func DefaultConfig() *Config {
 		Cert: &CertConfig{
 			Enabled: false,
 			Email:   "",
+		},
+		Limits: &ConnectionLimits{
+			MaxConnections:      0,
+			MaxConnectionsPerIP: 0,
+			ConnectionRateLimit: 0,
 		},
 	}
 }

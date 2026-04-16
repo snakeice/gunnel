@@ -6,3 +6,12 @@ token: YOUR_SHARED_TOKEN
 cert:
   enabled: true
   email: admin@example.com
+
+# Connection limits to prevent resource exhaustion
+limits:
+  # Maximum concurrent connections (0 = unlimited)
+  max_connections: 1000
+  # Maximum connections per IP address (0 = unlimited)
+  max_connections_per_ip: 50
+  # Maximum new connections per minute per IP (0 = unlimited)
+  connection_rate_limit: 30

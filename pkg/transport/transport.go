@@ -123,7 +123,7 @@ func (t *connectionTransport) Acquire() (Stream, error) {
 	if t.poolConfig.Enabled {
 		select {
 		case pooledStream := <-t.pool:
-			if pooledStream.isValid() {
+			if pooledStream != nil && pooledStream.isValid() {
 				t.mu.Lock()
 				t.streams = append(t.streams, pooledStream)
 				t.mu.Unlock()
@@ -176,8 +176,11 @@ func (t *connectionTransport) Release(stream Stream) error {
 		return stream.Close()
 	}
 
-	if !sc.isValid() {
-		return sc.Close()
+	if sc == nil || !sc.isValid() {
+		if sc != nil {
+			return sc.Close()
+		}
+		return nil
 	}
 
 	sc.markIdle()

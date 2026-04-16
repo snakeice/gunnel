@@ -21,11 +21,10 @@ import (
 )
 
 type Server struct {
-	config *Config
-
+	config      *Config
 	connManager *manager.Manager
-
-	webUI *webui.WebUI
+	webUI       *webui.WebUI
+	connLimiter *ConnectionLimiter
 }
 
 func NewServer(config *Config) *Server {
@@ -38,10 +37,20 @@ func NewServer(config *Config) *Server {
 		m.SetTokenValidator(func(token string) bool { return token == config.Token })
 	}
 
+	var limiter *ConnectionLimiter
+	if config.Limits != nil {
+		limiter = NewConnectionLimiter(
+			config.Limits.MaxConnections,
+			config.Limits.MaxConnectionsPerIP,
+			config.Limits.ConnectionRateLimit,
+		)
+	}
+
 	s := &Server{
 		config:      config,
 		webUI:       webUI,
 		connManager: m,
+		connLimiter: limiter,
 	}
 
 	return s
@@ -59,7 +68,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	s.startPprofIfEnabled(ctx)
-	errChan := make(chan error)
+	errChan := make(chan error, 10)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -88,6 +97,9 @@ func (s *Server) Start(ctx context.Context) error {
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			logrus.WithError(err).Warn("http server shutdown error")
 		}
+		if s.connLimiter != nil {
+			s.connLimiter.Stop()
+		}
 	}()
 
 	go s.StartQUICServer(ctx, errChan, wg)
@@ -111,6 +123,9 @@ func (s *Server) newHTTPServer() *http.Server {
 		Addr:              addr,
 		Handler:           s.connManager,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	if s.config.Cert.Enabled {
@@ -134,6 +149,10 @@ func (s *Server) updater(ctx context.Context, errChan chan error) {
 		select {
 		case <-ticker.C:
 			s.webUI.UpdateStats()
+			if s.connLimiter != nil {
+				logrus.WithField("active_connections", s.connLimiter.ActiveConnections()).
+					Debug("Connection stats")
+			}
 		case err := <-errChan:
 			if err != nil {
 				logrus.WithError(err).Error("Failed to server")
@@ -181,20 +200,35 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 			continue
 		}
 
-		transp, err := transport.NewFromServer(ctx, conn)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to create transport wrapper")
+		remoteAddr := conn.RemoteAddr().String()
+		if s.connLimiter != nil && !s.connLimiter.Acquire(remoteAddr) {
+			logrus.WithField("remote_addr", remoteAddr).Warn("Connection rejected by limiter")
+			if err := conn.CloseWithError(0, "connection limit exceeded"); err != nil {
+				logrus.WithError(err).Warn("Failed to close rejected connection")
+			}
 			continue
 		}
 
-		go func(conn *quic.Conn) {
+		transp, err := transport.NewFromServer(ctx, conn)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to create transport wrapper")
+			if s.connLimiter != nil {
+				s.connLimiter.Release(remoteAddr)
+			}
+			continue
+		}
+
+		go func(conn *quic.Conn, remoteAddr string) {
 			defer func() {
+				if s.connLimiter != nil {
+					s.connLimiter.Release(remoteAddr)
+				}
 				if err := conn.CloseWithError(0, ""); err != nil {
 					logrus.WithError(err).Warn("failed to close QUIC connection")
 				}
 			}()
 			s.connManager.HandleConnection(transp)
-		}(conn)
+		}(conn, remoteAddr)
 	}
 }
 
