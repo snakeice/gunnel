@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gunnel Status 🚇👷🏼</title>
+    <title>Gunnel Status</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -26,6 +26,17 @@
                     document.getElementById('total-clients').textContent = data.total_clients;
                     document.getElementById('active-streams').textContent = data.active_streams;
                     document.getElementById('total-bytes-io').textContent = formatBytes(data.total_bytes_in+data.total_bytes_out);
+                    document.getElementById('requests-total').textContent = formatNumber(data.requests_total || 0);
+                    document.getElementById('requests-per-second').textContent = (data.requests_per_second || 0).toFixed(2);
+                    document.getElementById('pool-hits').textContent = formatNumber(data.pool_hits || 0);
+                    document.getElementById('pool-misses').textContent = formatNumber(data.pool_misses || 0);
+                    document.getElementById('pool-size').textContent = data.pool_size || 0;
+                    document.getElementById('pool-efficiency').textContent = (data.pool_efficiency || 0).toFixed(1) + '%';
+                    document.getElementById('tunnel-errors').textContent = data.tunnel_errors || 0;
+                    
+                    const eff = data.pool_efficiency || 0;
+                    const effElement = document.getElementById('pool-efficiency');
+                    effElement.className = 'mt-1 text-3xl font-semibold ' + (eff >= 50 ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400');
                 });
         }
 
@@ -114,6 +125,7 @@
         }
 
         function formatBytes(bytes) {
+            if (!bytes) return '0 B';
             const units = ['B', 'KB', 'MB', 'GB'];
             let size = bytes;
             let unitIndex = 0;
@@ -122,6 +134,16 @@
                 unitIndex++;
             }
             return `${size.toFixed(2)} ${units[unitIndex]}`;
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            }
+            if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toString();
         }
 
         function formatDate(timestamp) {
@@ -148,6 +170,9 @@
                         <div class="flex-shrink-0 flex items-center">
                             <h1 class="text-xl font-bold text-gray-800 dark:text-white">Gunnel Status</h1>
                         </div>
+                    </div>
+                    <div class="flex items-center">
+                        <a href="/metrics" target="_blank" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">Prometheus Metrics</a>
                     </div>
                 </div>
             </div>
@@ -179,15 +204,61 @@
                         </div>
                         <div class="bg-gray-50 dark:bg-gray-700 overflow-hidden shadow rounded-lg transition-colors duration-200">
                             <div class="px-4 py-5 sm:p-6">
-                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Total Data Transferred</dt>
+                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Total Data</dt>
                                 <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="total-bytes-io">-</dd>
                             </div>
                         </div>
                         <div class="bg-red-50 dark:bg-red-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
                             <div class="px-4 py-5 sm:p-6">
-                                <dt class="text-sm font-medium text-red-600 dark:text-red-300 truncate">Suspicious IPs</dt>
-                                <dd class="mt-1 text-3xl font-semibold text-red-600 dark:text-red-400" id="suspicious-ips">-</dd>
+                                <dt class="text-sm font-medium text-red-600 dark:text-red-300 truncate">Tunnel Errors</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-red-600 dark:text-red-400" id="tunnel-errors">-</dd>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Prometheus Metrics -->
+            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg mb-6 transition-colors duration-200">
+                <div class="px-4 py-5 sm:p-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">Traffic & Pool Metrics</h3>
+                    <div class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+                        <div class="bg-blue-50 dark:bg-blue-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-blue-600 dark:text-blue-300 truncate">Total Requests</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-blue-600 dark:text-blue-400" id="requests-total">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-blue-50 dark:bg-blue-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-blue-600 dark:text-blue-300 truncate">Requests/sec</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-blue-600 dark:text-blue-400" id="requests-per-second">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-green-50 dark:bg-green-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-green-600 dark:text-green-300 truncate">Pool Hits</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-green-600 dark:text-green-400" id="pool-hits">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-yellow-50 dark:bg-yellow-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-yellow-600 dark:text-yellow-300 truncate">Pool Misses</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-yellow-600 dark:text-yellow-400" id="pool-misses">-</dd>
+                            </div>
+                        </div>
+                        <div class="bg-purple-50 dark:bg-purple-900/30 overflow-hidden shadow rounded-lg transition-colors duration-200">
+                            <div class="px-4 py-5 sm:p-6">
+                                <dt class="text-sm font-medium text-purple-600 dark:text-purple-300 truncate">Pool Efficiency</dt>
+                                <dd class="mt-1 text-3xl font-semibold text-purple-600 dark:text-purple-400" id="pool-efficiency">-</dd>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center text-sm text-gray-500 dark:text-gray-400">
+                            <span class="font-medium">Pool Size:</span>
+                            <span class="ml-2 text-gray-900 dark:text-white" id="pool-size">0</span>
+                            <span class="ml-1">streams ready for reuse</span>
                         </div>
                     </div>
                 </div>

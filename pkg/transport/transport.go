@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/quic-go/quic-go"
 	"github.com/sirupsen/logrus"
 	gunnelquic "github.com/snakeice/gunnel/pkg/quic"
@@ -30,14 +31,34 @@ type Transport interface {
 	ImServer() bool
 }
 
-// PoolConfig holds stream pool configuration.
 type PoolConfig struct {
-	MaxIdle     int           // maximum idle streams to keep in pool
-	IdleTimeout time.Duration // max time a stream can be idle before eviction
-	Enabled     bool          // whether pool is enabled
+	MaxIdle     int
+	IdleTimeout time.Duration
+	Enabled     bool
 }
 
-// connectionTransport represents a transport connection.
+var (
+	metricsPoolSize = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "gunnel",
+		Name:      "stream_pool_size",
+		Help:      "Current number of streams in the reuse pool",
+	})
+	metricsPoolHits = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "gunnel",
+		Name:      "stream_pool_hits_total",
+		Help:      "Total number of times a stream was reused from pool",
+	})
+	metricsPoolMisses = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "gunnel",
+		Name:      "stream_pool_misses_total",
+		Help:      "Total number of times a new stream was created",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(metricsPoolSize, metricsPoolHits, metricsPoolMisses)
+}
+
 type connectionTransport struct {
 	root       *streamClient
 	closed     bool
@@ -48,11 +69,10 @@ type connectionTransport struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
-	// stream pool
 	pool       chan *streamClient
 	poolConfig PoolConfig
-	poolHits   int64
-	poolMisses int64
+	poolHits   atomic.Int64
+	poolMisses atomic.Int64
 }
 
 func New(addr string) (Transport, error) {
@@ -74,9 +94,9 @@ func newWrapper(client *gunnelquic.Client, isServer bool) (*connectionTransport,
 		server:     isServer,
 		ctx:        ctx,
 		cancelFunc: cancel,
-		pool:       make(chan *streamClient, 100),
+		pool:       make(chan *streamClient, 50),
 		poolConfig: PoolConfig{
-			MaxIdle:     100,
+			MaxIdle:     50,
 			IdleTimeout: 30 * time.Second,
 			Enabled:     true,
 		},
@@ -127,10 +147,15 @@ func (t *connectionTransport) Acquire() (Stream, error) {
 				t.mu.Lock()
 				t.streams = append(t.streams, pooledStream)
 				t.mu.Unlock()
-				atomic.AddInt64(&t.poolHits, 1)
+				t.poolHits.Add(1)
+				metricsPoolHits.Inc()
 				return pooledStream, nil
 			}
-			atomic.AddInt64(&t.poolMisses, 1)
+			t.poolMisses.Add(1)
+			metricsPoolMisses.Inc()
+			if pooledStream != nil {
+				pooledStream.Close()
+			}
 		default:
 		}
 	}
@@ -187,6 +212,7 @@ func (t *connectionTransport) Release(stream Stream) error {
 
 	select {
 	case t.pool <- sc:
+		metricsPoolSize.Set(float64(len(t.pool)))
 		return nil
 	default:
 	}
@@ -423,9 +449,9 @@ func (t *connectionTransport) PoolSize() int {
 }
 
 func (t *connectionTransport) PoolHits() int64 {
-	return atomic.LoadInt64(&t.poolHits)
+	return t.poolHits.Load()
 }
 
 func (t *connectionTransport) PoolMisses() int64 {
-	return atomic.LoadInt64(&t.poolMisses)
+	return t.poolMisses.Load()
 }

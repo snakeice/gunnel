@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	handshakeTimeout = 30 * time.Second
-	keepAlivePeriod  = 30 * time.Second
-	maxIdleTimeout   = 60 * time.Second
+	handshakeTimeout         = 30 * time.Second
+	keepAlivePeriod          = 30 * time.Second
+	maxIdleTimeout           = 60 * time.Second
+	defaultMaxIncomingStreams = 10000
 )
 
 var (
@@ -175,8 +176,8 @@ func generateQuicConfig() *quic.Config {
 		HandshakeIdleTimeout:  handshakeTimeout,
 		KeepAlivePeriod:       keepAlivePeriod,
 		MaxIdleTimeout:        maxIdleTimeout,
-		MaxIncomingStreams:    2000,
-		MaxIncomingUniStreams: 2000,
+		MaxIncomingStreams:    defaultMaxIncomingStreams,
+		MaxIncomingUniStreams: defaultMaxIncomingStreams,
 		Allow0RTT:             true,
 	}
 }

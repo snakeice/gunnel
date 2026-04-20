@@ -44,8 +44,8 @@ type Connection struct {
 func New(transp transport.Transport, messageHandler ...MessageHandlerFunc) *Connection {
 	conn := &Connection{
 		stream:         transp.Root(),
-		sendChannel:    make(chan protocol.Parsable, 1000),
-		receiveChannel: make(chan *protocol.Message, 1000),
+		sendChannel:    make(chan protocol.Parsable, 100),
+		receiveChannel: make(chan *protocol.Message, 100),
 		transp:         transp,
 		connected:      true,
 		lastActive:     time.Now(),

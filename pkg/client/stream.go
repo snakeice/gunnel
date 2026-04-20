@@ -16,6 +16,10 @@ import (
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
+const streamIdleTimeout = 30 * time.Second
+
+var ErrStreamIdle = errors.New("stream idle timeout")
+
 func (c *Client) handleStream(
 	ctx context.Context,
 	strm transport.Stream,
@@ -25,7 +29,7 @@ func (c *Client) handleStream(
 		if r := recover(); r != nil {
 			logger.WithField("panic", r).Error("Stream handler panicked")
 		}
-		logger.Trace("Releasing stream")
+		logger.Trace("Closing stream")
 		if err := strm.Close(); err != nil {
 			logger.WithError(err).Error("Failed to close stream")
 		}
@@ -40,10 +44,14 @@ func (c *Client) handleStream(
 		}
 
 		if err := c.waitOrReceiveAndHandle(ctx, strm, logger); err != nil {
+			if errors.Is(err, ErrStreamIdle) {
+				logger.Debug("Stream idle timeout, closing")
+				return nil
+			}
 			return err
 		}
 
-		logger.Debug("Request processed, closing stream")
+		logger.Debug("Request processed, waiting for next request")
 	}
 }
 
@@ -52,20 +60,34 @@ func (c *Client) waitOrReceiveAndHandle(
 	strm transport.Stream,
 	logger *logrus.Entry,
 ) error {
-	// Read message
-	msg, err := strm.Receive()
+	idleCtx, cancel := context.WithTimeout(ctx, streamIdleTimeout)
+	defer cancel()
+
+	done := make(chan struct{})
+	var msg *protocol.Message
+	var err error
+
+	go func() {
+		defer close(done)
+		msg, err = strm.Receive()
+	}()
+
+	select {
+	case <-idleCtx.Done():
+		return ErrStreamIdle
+	case <-done:
+	}
+
 	if err != nil {
-		// Check if context is cancelled
 		select {
 		case <-ctx.Done():
-			return nil // Context cancelled, exit gracefully
+			return nil
 		default:
 		}
 
-		// EOF is expected when stream ends normally
 		if errors.Is(err, io.EOF) {
 			logger.Debug("Stream ended normally")
-			return err // Return EOF to exit the loop and close the stream
+			return err
 		}
 		return fmt.Errorf("failed to read message from server, closing connection: %w", err)
 	}
@@ -174,12 +196,10 @@ func (c *Client) handleBeginStream(
 		}
 	}()
 
-	// Write request to backend
 	if err := req.Write(backendConn); err != nil {
 		return fmt.Errorf("failed to write request to backend: %w", err)
 	}
 
-	// Read response from backend
 	resp, err := http.ReadResponse(bufio.NewReader(backendConn), req)
 	if err != nil {
 		return fmt.Errorf("failed to read response from backend: %w", err)
@@ -190,7 +210,6 @@ func (c *Client) handleBeginStream(
 		}
 	}()
 
-	// Write response back to stream
 	if err := resp.Write(strm); err != nil {
 		return fmt.Errorf("failed to write response to stream: %w", err)
 	}

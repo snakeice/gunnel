@@ -64,6 +64,8 @@ func newStreamHandler(stream *quic.Stream) *streamClient {
 	strm.watchClose()
 	strm.metricsInfo = metrics.NewInfo(strm.ID())
 
+	metrics.IncActiveStream("")
+
 	return strm
 }
 
@@ -115,6 +117,7 @@ func (t *streamClient) Send(msg protocol.Parsable) error {
 	}
 
 	t.metricsInfo.UpdateOut(n)
+	metrics.RecordBytesSent(t.metricsInfo.Subdomain, n)
 
 	logrus.WithFields(logrus.Fields{
 		"stream_id": t.ID(),
@@ -157,6 +160,7 @@ func (t *streamClient) Receive() (*protocol.Message, error) {
 	}
 
 	t.metricsInfo.UpdateIn(n)
+	metrics.RecordBytesReceived(t.metricsInfo.Subdomain, n)
 
 	logrus.WithFields(logrus.Fields{
 		"size":      n,
@@ -183,6 +187,8 @@ func (t *streamClient) Close() error {
 
 	t.metricsInfo.IsActive = false
 	t.metricsInfo.LastActive = time.Now()
+
+	metrics.DecActiveStream(t.metricsInfo.Subdomain)
 
 	if err := t.stream.Close(); err != nil {
 		return fmt.Errorf("failed to close streamClient: %w", err)
@@ -215,6 +221,7 @@ func (t *streamClient) Read(p []byte) (int, error) {
 	n, err := t.reader.Read(p)
 
 	t.metricsInfo.UpdateIn(n)
+	metrics.RecordBytesReceived(t.metricsInfo.Subdomain, n)
 	if err != nil {
 		if errors.Is(err, io.EOF) {
 			logrus.WithFields(logrus.Fields{
@@ -260,6 +267,7 @@ func (t *streamClient) Write(p []byte) (int, error) {
 	n, err := t.stream.Write(p)
 
 	t.metricsInfo.UpdateOut(n)
+	metrics.RecordBytesSent(t.metricsInfo.Subdomain, n)
 
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -287,7 +295,14 @@ func (t *streamClient) SetSubdomain(subdomain string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	oldSubdomain := t.metricsInfo.Subdomain
 	t.metricsInfo.SetSubdomain(subdomain)
+
+	if oldSubdomain != subdomain && subdomain != "" {
+		metrics.DecActiveStream(oldSubdomain)
+		metrics.IncActiveStream(subdomain)
+		metrics.RecordStreamConnection(subdomain)
+	}
 }
 
 func (t *streamClient) CloseWrite() error {

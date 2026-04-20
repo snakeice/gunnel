@@ -6,15 +6,23 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/caddyserver/certmagic"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/snakeice/gunnel/pkg/metrics"
 	"github.com/snakeice/gunnel/pkg/protocol"
 	"github.com/snakeice/gunnel/pkg/transport"
 )
 
 func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.URL.Path == "/metrics" {
+		promhttp.Handler().ServeHTTP(w, req)
+		return
+	}
+
 	subdomain := extractSubdomain(req)
 	if subdomain == "gunnel" {
 		m.handleGunnel(w, req)
@@ -143,30 +151,79 @@ func (m *Manager) handleProxyFlow(
 	w http.ResponseWriter,
 	req *http.Request,
 	subdomain string,
-	baseLogger *logrus.Entry,
-) error {
+	baseLogger *logrus.Entry) error {
+	start := time.Now()
 	logger := baseLogger
 
-	stream, err := m.Acquire(subdomain)
-	if err != nil {
-		if errors.Is(err, ErrNoConnection) {
-			logger.Error("No service found for subdomain")
-			return fmt.Errorf("no service found for subdomain %s", subdomain)
-		}
-		logger.WithError(err).Error("Failed to acquire transport")
-		return fmt.Errorf("service temporarily unavailable: %w", err)
-	}
-	defer m.Release(subdomain, stream)
+	const maxRetries = 2
+	var lastErr error
 
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		stream, err := m.Acquire(subdomain)
+		if err != nil {
+			if errors.Is(err, ErrNoConnection) {
+				logger.Error("No service found for subdomain")
+				metrics.RecordTunnelError(subdomain, "no_connection")
+				return fmt.Errorf("no service found for subdomain %s", subdomain)
+			}
+			logger.WithError(err).Error("Failed to acquire transport")
+			metrics.RecordTunnelError(subdomain, "acquire_failed")
+			return fmt.Errorf("service temporarily unavailable: %w", err)
+		}
+
+		statusCode, err := m.tryProxyRequest(stream, w, req, subdomain, logger)
+		if err == nil {
+			m.Release(subdomain, stream)
+			metrics.RecordRequest(subdomain, req.Method, statusCode, time.Since(start).Seconds())
+			return nil
+		}
+
+		lastErr = err
+		stream.Close()
+		m.Release(subdomain, stream)
+
+		if !isRetryableError(err) {
+			return err
+		}
+
+		logger.WithField("attempt", attempt+1).Debug("Retrying with fresh stream")
+	}
+
+	logger.WithError(lastErr).Error("All retry attempts failed")
+	metrics.RecordTunnelError(subdomain, "proxy_failed")
+	return lastErr
+}
+
+func isRetryableError(err error) bool {
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "EOF") ||
+		strings.Contains(errStr, "closed") ||
+		strings.Contains(errStr, "reset")
+}
+
+func (m *Manager) tryProxyRequest(
+	stream transport.Stream,
+	w http.ResponseWriter,
+	req *http.Request,
+	subdomain string,
+	logger *logrus.Entry,
+) (int, error) {
 	logger = logger.WithFields(logrus.Fields{
 		"stream_id": stream.ID(),
 	})
 
 	beginMsg := &protocol.BeginConnection{Subdomain: subdomain}
 	logger.Debug("Sending begin connection message")
-	if err = stream.Send(beginMsg); err != nil {
+	if err := stream.Send(beginMsg); err != nil {
 		logger.WithError(err).Error("Failed to send begin connection message")
-		return fmt.Errorf("failed to send begin connection message: %w", err)
+		metrics.RecordTunnelError(subdomain, "send_failed")
+		return 0, fmt.Errorf("failed to send begin connection message: %w", err)
 	}
 
 	readyChan := make(chan struct{})
@@ -182,24 +239,28 @@ func (m *Manager) handleProxyFlow(
 	case <-time.After(streamAcceptTimeout):
 		logger.Error("Client connection not ready in time")
 		<-doneChan
-		return errors.New("client connection not ready in time")
+		metrics.RecordTunnelError(subdomain, "timeout")
+		return 0, errors.New("client connection not ready in time")
 	case err := <-respChan:
 		<-doneChan
 		if err != nil {
 			logger.WithError(err).Error("Failed before proxy start")
-			return fmt.Errorf("failed before proxy start: %w", err)
+			metrics.RecordTunnelError(subdomain, "proxy_failed")
+			return 0, fmt.Errorf("failed before proxy start: %w", err)
 		}
 	}
 
 	if err := req.Write(stream); err != nil {
 		logger.WithError(err).Error("Failed to write request to stream")
-		return fmt.Errorf("failed to write request to stream: %w", err)
+		metrics.RecordTunnelError(subdomain, "write_failed")
+		return 0, fmt.Errorf("failed to write request to stream: %w", err)
 	}
 
 	resp, err := http.ReadResponse(stream.BufferedReader(), req)
 	if err != nil {
 		logger.WithError(err).Error("Failed to read response from stream")
-		return fmt.Errorf("failed to read response: %w", err)
+		metrics.RecordTunnelError(subdomain, "read_failed")
+		return 0, fmt.Errorf("failed to read response: %w", err)
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
@@ -216,10 +277,10 @@ func (m *Manager) handleProxyFlow(
 
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		logger.WithError(err).Error("Failed to write response body to client")
-		return nil
+		return resp.StatusCode, nil
 	}
 
-	return nil
+	return resp.StatusCode, nil
 }
 
 func (m *Manager) readClientMessagesAndProxy(

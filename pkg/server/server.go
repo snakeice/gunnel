@@ -18,6 +18,7 @@ import (
 	"github.com/snakeice/gunnel/pkg/signal"
 	"github.com/snakeice/gunnel/pkg/transport"
 	"github.com/snakeice/gunnel/pkg/webui"
+	"github.com/snakeice/gunnel/pkg/metrics"
 )
 
 type Server struct {
@@ -145,6 +146,9 @@ func (s *Server) updater(ctx context.Context, errChan chan error) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
+	metricsCleanupTicker := time.NewTicker(1 * time.Minute)
+	defer metricsCleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -152,6 +156,11 @@ func (s *Server) updater(ctx context.Context, errChan chan error) {
 			if s.connLimiter != nil {
 				logrus.WithField("active_connections", s.connLimiter.ActiveConnections()).
 					Debug("Connection stats")
+			}
+		case <-metricsCleanupTicker.C:
+			removed := metrics.CleanupOldStreams(5 * time.Minute)
+			if removed > 0 {
+				logrus.WithField("removed_streams", removed).Debug("Cleaned up old stream metrics")
 			}
 		case err := <-errChan:
 			if err != nil {
