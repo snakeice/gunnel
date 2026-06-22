@@ -127,6 +127,18 @@ func (m *Manager) addClient(subdomain string, client *connection.Connection) {
 	m.subdomains.Store(subdomain, client)
 }
 
+const gunnelSubdomain = "gunnel"
+
+// HasKnownSubdomain returns true if the subdomain is either the built-in management
+// UI subdomain or a registered client with an active connection.
+func (m *Manager) HasKnownSubdomain(subdomain string) bool {
+	if subdomain == gunnelSubdomain {
+		return true
+	}
+	client, ok := m.getClient(subdomain)
+	return ok && client.Connected()
+}
+
 func (m *Manager) removeClient(subdomain string) {
 	m.subdomains.Delete(subdomain)
 	logrus.WithField("subdomain", subdomain).Debug("Removed client from registry")

@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	handshakeTimeout         = 30 * time.Second
-	keepAlivePeriod          = 30 * time.Second
-	maxIdleTimeout           = 60 * time.Second
+	handshakeTimeout          = 30 * time.Second
+	keepAlivePeriod           = 30 * time.Second
+	maxIdleTimeout            = 60 * time.Second
 	defaultMaxIncomingStreams = 10000
 )
 

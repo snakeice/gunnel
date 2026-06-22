@@ -116,11 +116,13 @@ func (cl *ConnectionLimiter) getIPCount(ip string) int {
 	if !ok {
 		return 0
 	}
+	//nolint:errcheck // type guaranteed by LoadOrStore
 	return int(val.(*ipConnCount).count.Load())
 }
 
 func (cl *ConnectionLimiter) incrementIPCount(ip string) {
 	val, _ := cl.ipConns.LoadOrStore(ip, &ipConnCount{})
+	//nolint:errcheck // type guaranteed by LoadOrStore
 	val.(*ipConnCount).count.Add(1)
 }
 
@@ -129,6 +131,7 @@ func (cl *ConnectionLimiter) decrementIPCount(ip string) {
 	if !ok {
 		return
 	}
+	//nolint:errcheck // type guaranteed by Load
 	newCount := val.(*ipConnCount).count.Add(-1)
 	if newCount <= 0 {
 		cl.ipConns.Delete(ip)
@@ -137,6 +140,7 @@ func (cl *ConnectionLimiter) decrementIPCount(ip string) {
 
 func (cl *ConnectionLimiter) checkRateLimit(ip string) bool {
 	val, _ := cl.rateTracker.LoadOrStore(ip, &rateEntry{timestamps: make([]time.Time, 0)})
+	//nolint:errcheck // type guaranteed by LoadOrStore
 	entry := val.(*rateEntry)
 
 	entry.mu.Lock()
@@ -157,7 +161,8 @@ func (cl *ConnectionLimiter) checkRateLimit(ip string) bool {
 		return false
 	}
 
-	entry.timestamps = append(valid, now)
+	valid = append(valid, now)
+	entry.timestamps = valid
 	return true
 }
 
@@ -175,6 +180,7 @@ func (cl *ConnectionLimiter) cleanupLoop() {
 func (cl *ConnectionLimiter) cleanupOldRateEntries() {
 	cutoff := time.Now().Add(-2 * time.Minute)
 	cl.rateTracker.Range(func(key, value any) bool {
+		//nolint:errcheck // type guaranteed by Range
 		entry := value.(*rateEntry)
 		entry.mu.Lock()
 		defer entry.mu.Unlock()

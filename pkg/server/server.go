@@ -14,11 +14,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/snakeice/gunnel/pkg/certmanager"
 	"github.com/snakeice/gunnel/pkg/manager"
+	"github.com/snakeice/gunnel/pkg/metrics"
 	gunnelquic "github.com/snakeice/gunnel/pkg/quic"
 	"github.com/snakeice/gunnel/pkg/signal"
 	"github.com/snakeice/gunnel/pkg/transport"
 	"github.com/snakeice/gunnel/pkg/webui"
-	"github.com/snakeice/gunnel/pkg/metrics"
 )
 
 type Server struct {
@@ -113,8 +113,12 @@ func (s *Server) Start(ctx context.Context) error {
 
 func (s *Server) certInfo() *certmanager.CertReqInfo {
 	return &certmanager.CertReqInfo{
-		Domain: s.config.Domain,
-		Email:  s.config.Cert.Email,
+		Domain:         s.config.Domain,
+		WildcardDomain: s.config.Cert.WildcardDomain,
+		Email:          s.config.Cert.Email,
+		SubdomainChecker: func(subdomain string) bool {
+			return s.connManager.HasKnownSubdomain(subdomain)
+		},
 	}
 }
 
@@ -134,10 +138,14 @@ func (s *Server) newHTTPServer() *http.Server {
 		certInfo := s.certInfo()
 
 		tlsConfig, err := certmanager.GetTLSConfigWithLetsEncrypt(certInfo)
-		if err != nil {
-			logrus.WithError(err).Fatal("failed to get TLS config")
+		switch {
+		case err != nil:
+			logrus.WithError(err).Warn("TLS setup failed, continuing without TLS")
+		case tlsConfig != nil:
+			server.TLSConfig = tlsConfig
+		default:
+			logrus.Warn("Could not obtain any certificate, continuing without TLS")
 		}
-		server.TLSConfig = tlsConfig
 	}
 	return server
 }
@@ -196,7 +204,10 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 	}()
 
 	logrus.Infof("QUIC server started on %s", quicServer.Addr())
+	s.acceptQUICLoop(ctx, quicServer)
+}
 
+func (s *Server) acceptQUICLoop(ctx context.Context, quicServer *gunnelquic.Server) {
 	for {
 		conn, err := quicServer.Accept(ctx)
 		if err != nil {
@@ -208,37 +219,42 @@ func (s *Server) StartQUICServer(ctx context.Context, errChan chan error, wg *sy
 			}
 			continue
 		}
-
-		remoteAddr := conn.RemoteAddr().String()
-		if s.connLimiter != nil && !s.connLimiter.Acquire(remoteAddr) {
-			logrus.WithField("remote_addr", remoteAddr).Warn("Connection rejected by limiter")
-			if err := conn.CloseWithError(0, "connection limit exceeded"); err != nil {
-				logrus.WithError(err).Warn("Failed to close rejected connection")
-			}
-			continue
-		}
-
-		transp, err := transport.NewFromServer(ctx, conn)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to create transport wrapper")
-			if s.connLimiter != nil {
-				s.connLimiter.Release(remoteAddr)
-			}
-			continue
-		}
-
-		go func(conn *quic.Conn, remoteAddr string) {
-			defer func() {
-				if s.connLimiter != nil {
-					s.connLimiter.Release(remoteAddr)
-				}
-				if err := conn.CloseWithError(0, ""); err != nil {
-					logrus.WithError(err).Warn("failed to close QUIC connection")
-				}
-			}()
-			s.connManager.HandleConnection(transp)
-		}(conn, remoteAddr)
+		s.handleQUICConn(ctx, conn)
 	}
+}
+
+func (s *Server) handleQUICConn(ctx context.Context, conn *quic.Conn) {
+	remoteAddr := conn.RemoteAddr().String()
+	if s.connLimiter != nil && !s.connLimiter.Acquire(remoteAddr) {
+		logrus.WithField("remote_addr", remoteAddr).Warn("Connection rejected by limiter")
+		if err := conn.CloseWithError(0, "connection limit exceeded"); err != nil {
+			logrus.WithError(err).Warn("Failed to close rejected connection")
+		}
+		return
+	}
+
+	transp, err := transport.NewFromServer(ctx, conn)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to create transport wrapper")
+		if s.connLimiter != nil {
+			s.connLimiter.Release(remoteAddr)
+		}
+		return
+	}
+
+	go s.runQUICHandler(conn, remoteAddr, transp)
+}
+
+func (s *Server) runQUICHandler(conn *quic.Conn, remoteAddr string, transp transport.Transport) {
+	defer func() {
+		if s.connLimiter != nil {
+			s.connLimiter.Release(remoteAddr)
+		}
+		if err := conn.CloseWithError(0, ""); err != nil {
+			logrus.WithError(err).Warn("failed to close QUIC connection")
+		}
+	}()
+	s.connManager.HandleConnection(transp)
 }
 
 func (s *Server) startPprofIfEnabled(ctx context.Context) {

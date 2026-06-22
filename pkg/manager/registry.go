@@ -75,7 +75,11 @@ func (m *Manager) acceptStreams(transp transport.Transport, streamChan chan tran
 	}
 }
 
-func (m *Manager) handleStreamWithRegistration(client *connection.Connection, msg *protocol.Message, registrationChan chan<- registrationResult) error {
+func (m *Manager) handleStreamWithRegistration(
+	client *connection.Connection,
+	msg *protocol.Message,
+	registrationChan chan<- registrationResult,
+) error {
 	regMsg := protocol.ConnectionRegister{}
 	protocol.Unmarshal(&regMsg, msg)
 

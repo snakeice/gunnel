@@ -215,53 +215,59 @@ func (c *Client) handleAcceptedStream(ctx context.Context, strm transport.Stream
 }
 
 func (c *Client) reconnectLoop(ctx context.Context) {
+	const checkInterval = 1 * time.Second
 	attemptCount := 0
-	reconnectTimer := time.NewTimer(0)
-	defer reconnectTimer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			c.logger.Info("Stopping reconnect loop")
 			return
-		case <-reconnectTimer.C:
+		case <-time.After(checkInterval):
 		}
 
-		if c.conn == nil || c.conn.IsClosed() {
-			attemptCount++
-			exponentialFactor := math.Pow(2, float64(attemptCount-1))
-			maxRetry := 300 * time.Second
-			nextRetry := time.Duration(math.Min(
-				float64(c.reconnectDelay)*exponentialFactor,
-				float64(maxRetry),
-			))
+		c.mu.Lock()
+		needsReconnect := c.conn == nil || c.conn.IsClosed()
+		c.mu.Unlock()
 
-			c.mu.Lock()
-			c.logger.Warnf(
-				"No active connections. Reconnecting in %v (attempt %d)",
-				nextRetry, attemptCount,
-			)
-
-			transp, err := transport.New(c.config.ServerAddr)
-			if err != nil {
-				c.mu.Unlock()
-				c.logger.WithError(err).Warnf(
-					"Failed to create transport (attempt %d)",
-					attemptCount,
-				)
-				reconnectTimer.Reset(nextRetry)
-				continue
-			}
-
-			// Don't assign c.conn until register succeeds to avoid orphan transports
-			c.registerWithTransport(transp)
-			c.mu.Lock()
-			c.conn = transp
-			c.mu.Unlock()
-
-			c.logger.Info("Reconnected")
+		if !needsReconnect {
 			attemptCount = 0
+			continue
 		}
+
+		attemptCount++
+		exponentialFactor := math.Pow(2, float64(attemptCount-1))
+		nextRetry := time.Duration(math.Min(
+			float64(c.reconnectDelay)*exponentialFactor,
+			float64(300*time.Second),
+		))
+
+		c.logger.Warnf(
+			"No active connections. Reconnecting in %v (attempt %d)",
+			nextRetry,
+			attemptCount,
+		)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(nextRetry):
+		}
+
+		transp, err := transport.New(c.config.ServerAddr)
+		if err != nil {
+			c.logger.WithError(err).Warnf("Failed to create transport (attempt %d)", attemptCount)
+			continue
+		}
+
+		c.registerWithTransport(transp)
+
+		c.mu.Lock()
+		c.conn = transp
+		c.mu.Unlock()
+
+		c.logger.Info("Reconnected")
+		attemptCount = 0
 	}
 }
 

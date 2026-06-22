@@ -48,7 +48,7 @@ trap cleanup EXIT
 run_client() {
     local client_id=$1
     local server_addr=$2
-    
+
     # Create client config
     local config_file="/tmp/client_$client_id.yaml"
     cat > "$config_file" << EOF
@@ -59,11 +59,11 @@ backend:
     subdomain: test-$client_id
     protocol: http
 EOF
-    
+
     # Run client in background, suppress output
     export GUNNEL_TOKEN="test_token_$client_id"
     timeout $TEST_DURATION ./gunnel client -c "$config_file" --log-level warn >/dev/null 2>&1 &
-    
+
     local pid=$!
     echo "  Client $client_id started (PID: $pid)"
 }

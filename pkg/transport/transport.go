@@ -37,6 +37,7 @@ type PoolConfig struct {
 	Enabled     bool
 }
 
+//nolint:gochecknoglobals // prometheus metrics are package-level by convention
 var (
 	metricsPoolSize = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "gunnel",
@@ -55,6 +56,7 @@ var (
 	})
 )
 
+//nolint:gochecknoinits // required for prometheus metric registration
 func init() {
 	prometheus.MustRegister(metricsPoolSize, metricsPoolHits, metricsPoolMisses)
 }
@@ -151,12 +153,18 @@ func (t *connectionTransport) Acquire() (Stream, error) {
 				metricsPoolHits.Inc()
 				return pooledStream, nil
 			}
+			// Invalid stream from pool - this is a miss
 			t.poolMisses.Add(1)
 			metricsPoolMisses.Inc()
 			if pooledStream != nil {
-				pooledStream.Close()
+				if closeErr := pooledStream.Close(); closeErr != nil {
+					logrus.WithError(closeErr).Warn("Failed to close invalid pooled stream")
+				}
 			}
 		default:
+			// Pool empty - this is also a miss
+			t.poolMisses.Add(1)
+			metricsPoolMisses.Inc()
 		}
 	}
 

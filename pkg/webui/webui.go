@@ -158,7 +158,7 @@ func (ui *WebUI) getPrometheusMetrics() map[string]any {
 	tunnelErrors := int64(0)
 
 	for _, mf := range metricFamilies {
-		switch *mf.Name {
+		switch mf.GetName() {
 		case "gunnel_requests_total":
 			for _, m := range mf.GetMetric() {
 				requestsTotal += int64(m.GetCounter().GetValue())
@@ -212,7 +212,6 @@ func (ui *WebUI) UpdateStats() {
 	defer ui.mu.Unlock()
 
 	const maxInactive = 5 * time.Minute
-	const maxStreams = 15
 
 	removed := metrics.CleanupOldStreams(10 * time.Minute)
 	if removed > 0 {
@@ -221,40 +220,55 @@ func (ui *WebUI) UpdateStats() {
 
 	ui.clients = make([]map[string]any, 0)
 
-	ui.streams = make([]map[string]any, 0)
+	type subStats struct {
+		activeStreams int
+		totalStreams  int
+		bytesIn       int64
+		bytesOut      int64
+	}
+	subdomainMap := make(map[string]*subStats)
+
 	for _, stream := range metrics.GetActiveStreams() {
+		s := subdomainMap[stream.Subdomain]
+		if s == nil {
+			s = &subStats{}
+			subdomainMap[stream.Subdomain] = s
+		}
+		s.activeStreams++
+		s.totalStreams++
+		s.bytesIn += stream.BytesReceived.Load()
+		s.bytesOut += stream.BytesSent.Load()
+	}
+
+	for _, stream := range metrics.GetInactiveStreams() {
+		if time.Since(stream.StartTime) > maxInactive {
+			continue
+		}
+		s := subdomainMap[stream.Subdomain]
+		if s == nil {
+			s = &subStats{}
+			subdomainMap[stream.Subdomain] = s
+		}
+		s.totalStreams++
+		s.bytesIn += stream.BytesReceived.Load()
+		s.bytesOut += stream.BytesSent.Load()
+	}
+
+	ui.streams = make([]map[string]any, 0, len(subdomainMap))
+	for sub, s := range subdomainMap {
 		ui.streams = append(ui.streams, map[string]any{
-			"id":         stream.ID,
-			"subdomain":  stream.Subdomain,
-			"start_time": stream.StartTime,
-			"bytes_in":   stream.BytesReceived.Load(),
-			"bytes_out":  stream.BytesSent.Load(),
-			"is_active":  stream.IsActive,
+			"subdomain":      sub,
+			"active_streams": s.activeStreams,
+			"total_streams":  s.totalStreams,
+			"bytes_in":       s.bytesIn,
+			"bytes_out":      s.bytesOut,
 		})
 	}
 
-	if len(ui.streams) < maxStreams {
-		for _, stream := range metrics.GetInactiveStreams() {
-			if time.Since(stream.StartTime) > maxInactive {
-				continue
-			}
-
-			ui.streams = append(ui.streams, map[string]any{
-				"id":         stream.ID,
-				"subdomain":  stream.Subdomain,
-				"start_time": stream.StartTime,
-				"bytes_in":   stream.BytesReceived.Load(),
-				"bytes_out":  stream.BytesSent.Load(),
-				"is_active":  stream.IsActive,
-			})
-
-			if len(ui.streams) >= maxStreams {
-				break
-			}
-		}
-	}
-
 	ui.mngr.ForEachClient(func(subdomain string, info *connection.Connection) {
+		if !info.Connected() {
+			return
+		}
 		ui.clients = append(ui.clients, map[string]any{
 			"subdomain":   subdomain,
 			"connections": info.GetConnCount(subdomain),

@@ -24,7 +24,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	subdomain := extractSubdomain(req)
-	if subdomain == "gunnel" {
+	if subdomain == gunnelSubdomain {
 		m.handleGunnel(w, req)
 		return
 	}
@@ -80,7 +80,7 @@ func (m *Manager) serveHoneypotResponse(
 		w.Header().Set("Content-Type", contentType)
 		w.WriteHeader(http.StatusOK)
 
-		if _, writeErr := w.Write(body); writeErr != nil { //nolint:gosec // honeypot
+		if _, writeErr := w.Write(body); writeErr != nil {
 			logger.WithError(writeErr).Warn("Failed to write fake response")
 		}
 
@@ -157,8 +157,9 @@ func (m *Manager) handleProxyFlow(
 
 	const maxRetries = 2
 	var lastErr error
+	var lastErrorType string
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		stream, err := m.Acquire(subdomain)
 		if err != nil {
 			if errors.Is(err, ErrNoConnection) {
@@ -179,10 +180,14 @@ func (m *Manager) handleProxyFlow(
 		}
 
 		lastErr = err
-		stream.Close()
+		lastErrorType = classifyProxyError(err)
+		if closeErr := stream.Close(); closeErr != nil {
+			logger.WithError(closeErr).Warn("Failed to close stream")
+		}
 		m.Release(subdomain, stream)
 
 		if !isRetryableError(err) {
+			metrics.RecordTunnelError(subdomain, lastErrorType)
 			return err
 		}
 
@@ -190,8 +195,24 @@ func (m *Manager) handleProxyFlow(
 	}
 
 	logger.WithError(lastErr).Error("All retry attempts failed")
-	metrics.RecordTunnelError(subdomain, "proxy_failed")
+	metrics.RecordTunnelError(subdomain, lastErrorType)
 	return lastErr
+}
+
+func classifyProxyError(err error) string {
+	errStr := err.Error()
+	switch {
+	case strings.Contains(errStr, "not ready in time"):
+		return "timeout"
+	case strings.Contains(errStr, "begin connection"):
+		return "send_failed"
+	case strings.Contains(errStr, "write request"):
+		return "write_failed"
+	case strings.Contains(errStr, "read response"):
+		return "read_failed"
+	default:
+		return "proxy_failed"
+	}
 }
 
 func isRetryableError(err error) bool {
@@ -222,7 +243,6 @@ func (m *Manager) tryProxyRequest(
 	logger.Debug("Sending begin connection message")
 	if err := stream.Send(beginMsg); err != nil {
 		logger.WithError(err).Error("Failed to send begin connection message")
-		metrics.RecordTunnelError(subdomain, "send_failed")
 		return 0, fmt.Errorf("failed to send begin connection message: %w", err)
 	}
 
@@ -239,27 +259,23 @@ func (m *Manager) tryProxyRequest(
 	case <-time.After(streamAcceptTimeout):
 		logger.Error("Client connection not ready in time")
 		<-doneChan
-		metrics.RecordTunnelError(subdomain, "timeout")
 		return 0, errors.New("client connection not ready in time")
 	case err := <-respChan:
 		<-doneChan
 		if err != nil {
 			logger.WithError(err).Error("Failed before proxy start")
-			metrics.RecordTunnelError(subdomain, "proxy_failed")
 			return 0, fmt.Errorf("failed before proxy start: %w", err)
 		}
 	}
 
 	if err := req.Write(stream); err != nil {
 		logger.WithError(err).Error("Failed to write request to stream")
-		metrics.RecordTunnelError(subdomain, "write_failed")
 		return 0, fmt.Errorf("failed to write request to stream: %w", err)
 	}
 
 	resp, err := http.ReadResponse(stream.BufferedReader(), req)
 	if err != nil {
 		logger.WithError(err).Error("Failed to read response from stream")
-		metrics.RecordTunnelError(subdomain, "read_failed")
 		return 0, fmt.Errorf("failed to read response: %w", err)
 	}
 	defer func() {

@@ -23,8 +23,9 @@ type Config struct {
 }
 
 type CertConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Email   string `yaml:"email"`
+	Enabled        bool   `yaml:"enabled"`
+	Email          string `yaml:"email"`
+	WildcardDomain string `yaml:"wildcard_domain"`
 }
 
 // ConnectionLimits holds connection limiting configuration.
