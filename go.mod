@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/caddyserver/certmagic v0.25.4
 	github.com/goccy/go-yaml v1.19.2
-	github.com/magiconair/properties v1.8.10
+	github.com/magiconair/properties v1.18.12
 	github.com/prometheus/client_golang v1.24.1
 	github.com/quic-go/quic-go v0.60.0
 	github.com/sirupsen/logrus v1.9.4
